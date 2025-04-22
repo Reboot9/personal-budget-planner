@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>Prediction Result</h2>
+    {% if prediction %}
+        <h3>Prediction: {{ prediction }}</h3>
+    {% else %}
+        <p>No prediction result.</p>
+    {% endif %}
+    <a href="{% url 'prediction_form' %}">Return</a>
+{% endblock %}

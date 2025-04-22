@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>Uploaded Files</h2>
+  <ul>
+    {% for file in files %}
+      <li>
+        <a href="#">{{ file.filename|default:"No file" }}</a> (Uploaded at: {{ file.uploaded_at }})
+      </li>
+    {% endfor %}
+  </ul>
+
+  <a href="{% url 'file-upload' %}">Upload More Files</a>
+{% endblock %}

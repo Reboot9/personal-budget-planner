@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13.1-alpine
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - PGPORT=${DB_PORT}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - budget_network
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "${DB_USER}", "-d", "${DB_NAME}", "-h", "localhost" ]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 10s
+
+  web:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - ./.env
+    volumes:
+      - .:/personal_budget_planner
+      - static_volume:/personal_budget_planner/personal_budget_planner/static
+      - media_volume:/personal_budget_planner/personal_budget_planner/media
+    expose:
+      - 8000
+    networks:
+      - budget_network
+    depends_on:
+      - db
+
+  nginx:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: config/nginx/Dockerfile
+    volumes:
+      - static_volume:/personal_budget_planner/personal_budget_planner/static
+      - media_volume:/personal_budget_planner/personal_budget_planner/media
+    ports:
+      - "8080:80"
+    networks:
+      - budget_network
+    depends_on:
+      - web
+
+
+volumes:
+  static_volume:
+  media_volume:
+  postgres_data:
+
+networks:
+  budget_network:
+    driver: bridge

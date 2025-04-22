@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>Predict Transaction Outcome</h2>
+    <form method="post">
+        {% csrf_token %}
+        <fieldset>
+          <legend>Select Categories:</legend>
+          {{ form.category }}
+        </fieldset>
+        
+        <fieldset>
+            <legend>Select Date Range:</legend>
+            <div class="form-group">
+                {{ form.date_from }}
+                {{ form.date_to }}
+            </div>
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary">Predict</button>
+    </form>
+{% endblock %}
