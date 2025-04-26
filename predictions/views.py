@@ -120,25 +120,13 @@ class PredictionFormView(LoginRequiredMixin, FormView):
         if date_to:
             transactions = transactions.filter(date__lte=date_to)
 
-        features = [{
-            'date': transaction.date,
-            'amount': transaction.amount,
-            'category': transaction.category.name if transaction.category else 'Other'
-        } for transaction in transactions]
-        # return render(self.request, 'prediction_result.html', {'prediction': "bbb", 'form': form})
-
-
         model = BudgetPredictionModel(user_id=self.request.user.id)
         # try:
         print("pred")
-        model.train_model(features)
-        model.train_category_classifier(features)
+        model.train(transactions)
+        predictions = model.predict(n_days=7)
 
-        amounts = model.predict(features)
-        categories = model.predict_category(features)
-
-        result = list(zip(amounts, categories))
-        return render(self.request, 'prediction_result.html', {'prediction': result, 'form': form})
+        return render(self.request, 'prediction_result.html', {'prediction': predictions, 'form': form})
         # except Exception as e:
         #     print(e)
         #     form.add_error(None, f"Error while making prediction {str(e)}")

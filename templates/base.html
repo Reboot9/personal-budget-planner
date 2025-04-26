@@ -13,7 +13,7 @@
 
     {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="d-flex flex-column min-vh-100">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand" href="{% url 'home' %}">Budget Planner</a>
@@ -62,7 +62,7 @@
         {% endif %}
     </div>
 
-    <div class="container mt-4">
+    <div class="container mt-4 flex-grow-1">
         {% block content %}{% endblock %}
     </div>
 

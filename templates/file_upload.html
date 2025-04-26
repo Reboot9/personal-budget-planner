@@ -1,12 +1,30 @@
 {% extends "base.html" %}
+{% load form_tags %}
 
 {% block content %}
-  <h2>Upload a File</h2>
-  <form method="post" enctype="multipart/form-data">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Upload</button>
-  </form>
-
-  <a href="{% url 'file-list' %}">View Uploaded Files</a>
+<div class="row justify-content-center">
+  <div class="col-md-8 col-lg-6">
+    <div class="card shadow-lg">
+      <div class="card-body">
+        <h3 class="card-title text-center mb-4">Upload a File</h3>
+        <form method="post" enctype="multipart/form-data" novalidate>
+          {% csrf_token %}
+          {% for field in form %}
+            <div class="mb-3 text-start">
+              <label class="form-label d-block mb-1">{{ field.label }}</label>
+              {{ field|add_class:"form-control" }}
+              {% if field.errors %}
+                <div class="text-danger small">{{ field.errors|striptags }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+          <button type="submit" class="btn btn-primary w-100">Upload</button>
+        </form>
+        <p class="text-center mt-3">
+          <a href="{% url 'file-list' %}">View Uploaded Files</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

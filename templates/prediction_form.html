@@ -1,22 +1,69 @@
 {% extends "base.html" %}
+{% load form_tags %}
 
 {% block content %}
-  <h2>Predict Transaction Outcome</h2>
-    <form method="post">
-        {% csrf_token %}
-        <fieldset>
-          <legend>Select Categories:</legend>
-          {{ form.category }}
-        </fieldset>
-        
-        <fieldset>
-            <legend>Select Date Range:</legend>
-            <div class="form-group">
-                {{ form.date_from }}
-                {{ form.date_to }}
+<div class="row justify-content-center">
+  <div class="col-md-8 col-lg-6">
+    <div class="card shadow-lg">
+      <div class="card-body">
+        <h3 class="card-title text-center mb-4">Predict Transaction Outcome</h3>
+        <form method="post" novalidate>
+          {% csrf_token %}
+          
+          <fieldset class="mb-4">
+            <legend class="h5">Category Selector</legend>
+            <div class="dropdown">
+              <button class="btn btn-secondary dropdown-toggle w-100" type="button" id="dropdownMenuButton" data-bs-toggle="dropdown" aria-expanded="false">
+                Select Categories
+              </button>
+              <ul class="dropdown-menu w-100" aria-labelledby="dropdownMenuButton">
+                {% for choice in form.category.field.choices %}
+                  <li>
+                    <div class="form-check">
+                      <input class="form-check-input ms-2" type="checkbox" name="category" value="{{ choice.0 }}" id="category-{{ choice.0 }}" {% if choice.0 in form.category.value %}checked{% endif %}>
+                      <label class="form-check-label" for="category-{{ choice.0 }}">
+                        {{ choice.1 }}
+                      </label>
+                    </div>
+                  </li>
+                {% endfor %}
+              </ul>
             </div>
-        </fieldset>
+            <button type="button" class="btn btn-outline-primary mt-2 w-100" onclick="selectAllCategories()">Select All Categories</button>
+            {% if form.category.errors %}
+              <div class="text-danger small">{{ form.category.errors|striptags }}</div>
+            {% endif %}
+          </fieldset>
 
-        <button type="submit" class="btn btn-primary">Predict</button>
-    </form>
+          <fieldset class="mb-4">
+            <legend class="h5">Select Date Range:</legend>
+            <div class="form-group">
+              <label for="{{ form.date_from.id_for_label }}" class="form-label">Start Date</label>
+              {{ form.date_from|add_class:"form-control" }}
+              {% if form.date_from.errors %}
+                <div class="text-danger small">{{ form.date_from.errors|striptags }}</div>
+              {% endif %}
+            </div>
+            <div class="form-group">
+              <label for="{{ form.date_to.id_for_label }}" class="form-label">End Date</label>
+              {{ form.date_to|add_class:"form-control" }}
+              {% if form.date_to.errors %}
+                <div class="text-danger small">{{ form.date_to.errors|striptags }}</div>
+              {% endif %}
+            </div>
+          </fieldset>
+
+          <button type="submit" class="btn btn-primary w-100">Predict</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function selectAllCategories() {
+    const checkboxes = document.querySelectorAll('input[type="checkbox"][name="category"]');
+    checkboxes.forEach(checkbox => checkbox.checked = true);
+  }
+</script>
 {% endblock %}

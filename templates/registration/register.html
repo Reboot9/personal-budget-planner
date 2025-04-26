@@ -1,12 +1,31 @@
 {% extends "base.html" %}
 {% load static %}
+{% load form_tags %}
 
 {% block content %}
-  <h2>Register</h2>
-  <form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Sign Up</button>
-  </form>
-  <a href="{% url 'login' %}">Already have an account? Login here.</a>
+<div class="row justify-content-center">
+  <div class="col-md-8 col-lg-6">
+    <div class="card shadow-lg">
+      <div class="card-body">
+        <h3 class="card-title text-center mb-4">Register</h3>
+        <form method="post" novalidate>
+          {% csrf_token %}
+          {% for field in form %}
+            <div class="mb-3 text-start">
+              <label class="form-label d-block mb-1">{{ field.label }}</label>
+              {{ field|add_class:"form-control" }}
+              {% if field.errors %}
+                <div class="text-danger small">{{ field.errors|striptags }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+          <button type="submit" class="btn btn-success w-100">Sign Up</button>
+        </form>
+        <p class="text-center mt-3">
+          <a href="{% url 'login' %}">Already have an account? Login here.</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
