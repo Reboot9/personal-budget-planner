@@ -4,7 +4,8 @@ import pandas as pd
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.sites import requests
 from django.core.exceptions import ValidationError
-from django.shortcuts import render
+from django.http import JsonResponse
+from django.shortcuts import render, redirect
 from django.urls import reverse_lazy
 from django.views.generic import FormView, ListView
 from django.views.generic import TemplateView
@@ -12,6 +13,32 @@ from django.views.generic import TemplateView
 from .forms import UserFileUploadForm, PredictionForm
 from .models import UserFileUpload, TransactionCategory, Transaction
 from .services.budget_prediction import BudgetPredictionModel
+from predictions.tasks import train_and_predict_task
+from celery.result import AsyncResult
+from django.http import JsonResponse
+from personal_budget_planner.celery import app
+
+def prediction_task_status(request, task_id):
+    result = AsyncResult(task_id, app=app)
+    if result.ready():
+        prediction = result.result
+        # Replace None or missing values with a default value
+        cleaned_prediction = [
+            {key: (value if value is not None else 0) for key, value in day.items()}
+            for day in prediction
+        ]
+        # cleaned_prediction = [
+        #     {'Taxi': 4, 'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
+        #      'Restaurant': 16.35557, },
+        #     {'Coffee': 16.475573, 'Learning': 24, 'Market': 15.977781, 'Phone': 15.803815,},
+        #     {'Coffee': 16.475573, 'Learning': 20, 'Phone': 15.803815,
+        #      'Restaurant': 16.35557, 'Taxi': 16.80649},
+        #     {'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
+        #      'Restaurant': 16.35557, 'Taxi': 16.80649}
+        # ]
+        request.session['prediction_data'] = cleaned_prediction
+        return JsonResponse({'status': 'done', 'result': cleaned_prediction})
+    return JsonResponse({'status': 'pending'})
 
 
 class HomeView(LoginRequiredMixin, TemplateView):
@@ -120,24 +147,34 @@ class PredictionFormView(LoginRequiredMixin, FormView):
         if date_to:
             transactions = transactions.filter(date__lte=date_to)
 
-        model = BudgetPredictionModel(user_id=self.request.user.id)
-        # try:
-        print("pred")
-        model.train(transactions)
-        predictions = model.predict(n_days=7)
+        transaction_ids = list(transactions.values_list('id', flat=True))
+        task = train_and_predict_task.delay(self.request.user.id, transaction_ids, 7)
 
-        return render(self.request, 'prediction_result.html', {'prediction': predictions, 'form': form})
-        # except Exception as e:
-        #     print(e)
-        #     form.add_error(None, f"Error while making prediction {str(e)}")
-        #     return self.form_invalid(form)
+        # Store task ID in session for later checking in JS
+        self.request.session['task_id'] = task.id
+
+        return redirect('prediction_form')
+
+        # return render(self.request, 'prediction_result.html', {'prediction': predictions, 'form': form})
 
     def form_invalid(self, form):
         return self.render_to_response({'form': form})
+
+
+import json
 
 class PredictionResultView(TemplateView):
     template_name = 'prediction_result.html'
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        prediction_data = self.request.session.get('prediction_data', [])
+
+        context['prediction'] = prediction_data
+
+        # if prediction_data:
+        #     predictions = json.loads(prediction_data)
+        #     context['prediction'] = json.dumps(predictions)
+        # else:
+        #     context['prediction'] = '[]'
         return context

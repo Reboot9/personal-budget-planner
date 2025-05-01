@@ -55,6 +55,26 @@ services:
     depends_on:
       - web
 
+  celery:
+    build:
+      context: .
+    command: celery -A personal_budget_planner worker --loglevel=info
+    volumes:
+      - .:/personal_budget_planner
+    env_file:
+      - .env
+    depends_on:
+      - db
+    networks:
+      - budget_network
+
+  redis:
+    image: redis:6-alpine
+    restart: unless-stopped
+    networks:
+      - budget_network
+
+
 
 volumes:
   static_volume:

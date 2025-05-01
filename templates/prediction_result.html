@@ -1,11 +1,131 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>Prediction Result</h2>
-    {% if prediction %}
-        <h3>Prediction: {{ prediction }}</h3>
-    {% else %}
-        <p>No prediction result.</p>
-    {% endif %}
-    <a href="{% url 'prediction_form' %}">Return</a>
+  <style>
+    .category-hidden {
+      transition: opacity 0.5s ease;
+      opacity: 0;
+    }
+    .category-visible {
+      transition: opacity 0.5s ease;
+      opacity: 1;
+    }
+  </style>
+  <h2>Predicted Spending per Day</h2>
+  {% if prediction %}
+    <canvas id="spendingChart" height="120"></canvas>
+    <div id="prediction-data" data-prediction="{{ prediction|escapejs }}"></div>
+    <div id="checkboxes-container" class="mt-4">
+      <h4>Choose categories to display:</h4>
+    </div>
+  {% else %}
+    <p>No prediction result.</p>
+  {% endif %}
+
+  <a class="btn btn-outline-secondary mt-3" href="{% url 'prediction_form' %}">Return</a>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    // Получаем JSON данные из шаблона
+    const rawData = {{ prediction|safe }};
+
+    const categories = [
+      "Business Expenses", "Business lunch", "Clothing", "Coffee", "Communal", "Events", "Film/Enjoyment",
+      "Fuel", "Health", "Joy", "Learning", "Market", "Motel", "Other", "Phone", "Rent Car", "Restaurant",
+      "Sport", "Taxi", "Tech", "Transport", "Travel"
+    ];
+
+    const fixedColors = [
+      "#8e8e8e", "#e3a8c4", "#d88ac6", "#f4c771", "#c1d8e5", "#e5c04b", "#3b5a76",
+      "#bb8e77", "#acb1c1", "#c0a3c4", "#76e29b", "#6fa3f7", "#ffb6a3", "#62a7d9", "#cc8e6b",
+      "#a0d68c", "#9bd69d", "#a9c8d1", "#f0a1bb", "#6b9db3", "#c8c8c8", "#a9c8d1"
+    ];
+
+    const availableCategories = categories.filter(cat =>
+      rawData.some(day => day[cat] !== undefined)
+    ).sort();
+
+    const daySums = rawData.map(day =>
+      Object.values(day).reduce((a, b) => a + b, 0)
+    );
+    const maxTotal = Math.max(...daySums) * 1.1;
+
+    let datasets = availableCategories.map((cat, i) => ({
+      label: cat,
+      data: rawData.map(day => +(day[cat] || 0).toFixed(2)),
+      backgroundColor: fixedColors[categories.indexOf(cat)],
+      hidden: false
+    }));
+
+    const updateChart = () => {
+      datasets.forEach((ds, i) => {
+        const meta = chart.getDatasetMeta(i);
+        if (meta) {
+          const visible = !ds.hidden;
+          meta.hidden = !visible;
+          meta.data.forEach(bar => {
+            if (bar.element) {
+              bar.element.options.backgroundColor = visible ? ds.backgroundColor : 'transparent';
+            }
+          });
+        }
+      });
+      chart.update();
+    };
+
+    const ctx = document.getElementById('spendingChart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: rawData.map((_, i) => `Day ${i + 1}`),
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          title: {
+            display: false,
+            text: 'Spending by Category per Day'
+          }
+        },
+        scales: {
+          x: { stacked: true },
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            suggestedMax: maxTotal,
+            title: {
+              display: true,
+              text: 'Amount'
+            }
+          }
+        }
+      }
+    });
+
+    const container = document.getElementById('checkboxes-container');
+    if (container) {
+      availableCategories.forEach((cat, i) => {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `checkbox-${cat}`;
+        checkbox.checked = true;
+        checkbox.addEventListener('change', () => {
+          datasets[i].hidden = !checkbox.checked;
+          updateChart();
+        });
+
+        const label = document.createElement('label');
+        label.setAttribute('for', checkbox.id);
+        label.textContent = cat;
+        label.classList.add('ms-1', 'me-3');
+
+        container.appendChild(checkbox);
+        container.appendChild(label);
+        container.appendChild(document.createElement('br'));
+      });
+    }
+  </script>
 {% endblock %}

@@ -280,43 +280,6 @@ class BudgetPredictionModel:
         y_pred = (y_pred_probs >= self.thresholds).astype(int)
         print(classification_report(Y_val_cat, y_pred, target_names=self.encoder.categories_[0], zero_division=0))
 
-    # def predict(self, n_days=30):
-    #     if self.amounts_scaled is None or self.categories_encoded is None:
-    #         raise ValueError("Data has not been preprocessed. Please call train first.")
-    #
-    #     all_predictions = []
-    #
-    #
-    #     current_amounts = self.amounts_scaled[-self.n_days:].copy()  # shape: (n_days, 1)
-    #     current_categories = self.categories_encoded[-self.n_days:].copy()  # shape: (n_days, n_categories)
-    #     current_temporal = self.temporal_features[-self.n_days:].copy()  # shape: (n_days, 2)
-    #
-    #     for _ in range(n_days):
-    #         input_amt = np.expand_dims(current_amounts, axis=0)
-    #         input_cat = np.expand_dims(current_categories, axis=0)
-    #         input_tmp = np.expand_dims(current_temporal, axis=0)
-    #
-    #         amount_pred, category_pred, temporal_pred = self.model.predict([input_amt, input_cat, input_tmp], verbose=0)
-    #         predicted_amounts = self.scaler.inverse_transform(amount_pred)
-    #
-    #         daily_prediction = {}
-    #         for idx, cat_prob in enumerate(category_pred[0]):
-    #             if cat_prob > self.threshold:
-    #                 category = self.encoder.categories_[0][idx]
-    #                 amount = predicted_amounts[0][idx]
-    #                 daily_prediction[category] = amount
-    #
-    #         all_predictions.append(daily_prediction)
-    #
-    #         # Update rolling windows
-    #         avg_amount = np.mean(amount_pred, axis=1, keepdims=True)  # shape: (1, 1)
-    #         current_amounts = np.vstack([current_amounts[1:], avg_amount])
-    #
-    #         current_categories = np.vstack([current_categories[1:], category_pred])
-    #         current_temporal = np.vstack([current_temporal[1:], temporal_pred])
-    #
-    #     return all_predictions
-
     def predict(self, n_days=30):
         if self.amounts_scaled is None or self.categories_encoded is None:
             raise ValueError("Data has not been preprocessed. Please call train first.")
