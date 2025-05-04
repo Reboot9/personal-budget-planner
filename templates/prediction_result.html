@@ -12,14 +12,30 @@
     }
   </style>
   <h2>Predicted Spending per Day</h2>
+
   {% if prediction %}
     <canvas id="spendingChart" height="120"></canvas>
     <div id="prediction-data" data-prediction="{{ prediction|escapejs }}"></div>
-    <div id="checkboxes-container" class="mt-4">
+    <div id="checkboxes-container" class="mt-4" style="display: none;">
       <h4>Choose categories to display:</h4>
     </div>
+
+
+    {% if not readonly and prediction_length > 0 %}
+    <!--User Prediction saving form-->
+    <form method="post" action="{% url 'save_prediction' %}" class="mt-4">
+      {% csrf_token %}
+      <div class="mb-2">
+        <label for="prediction_name">Name your prediction (optional):</label>
+        <input type="text" id="prediction_name" name="name" class="form-control" placeholder="e.g. April Week 3">
+      </div>
+      <input type="hidden" name="data" id="prediction_data_input">
+      <button type="submit" class="btn btn-primary mt-2">Save Prediction</button>
+    </form>
+    {% endif %}
   {% else %}
-    <p>No prediction result.</p>
+    <p>No prediction result. Please submit a prediction first.</p>
+    <canvas id="spendingChart" height="120"></canvas>
   {% endif %}
 
   <a class="btn btn-outline-secondary mt-3" href="{% url 'prediction_form' %}">Return</a>
@@ -28,8 +44,36 @@
 {% block extra_js %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    // Получаем JSON данные из шаблона
-    const rawData = {{ prediction|safe }};
+    // Check if prediction data exists
+    const predictionData = "{{ prediction|escapejs }}";
+
+    let rawData = [];
+    let maxTotal = 10; // Declare maxTotal outside of the condition
+    let availableCategories = [];
+    if (predictionData !== 'null' && predictionData !== '') {
+      rawData = JSON.parse(predictionData);
+      const daySums = rawData.map(day =>
+        Object.values(day).reduce((a, b) => a + b, 0)
+      );
+      maxTotal = Math.max(...daySums) * 1.1;
+    }
+
+    const ctx = document.getElementById('spendingChart').getContext('2d');
+
+    // Default chart options for an empty graph
+    const defaultChartData = {
+      labels: ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5"],
+      datasets: [{
+        label: 'No Data',
+        data: [0, 0, 0, 0, 0],
+        backgroundColor: '#ddd',
+        borderColor: '#bbb',
+        borderWidth: 1
+      }]
+    };
+
+    let chartData = defaultChartData;
+    let datasets = [];
 
     const categories = [
       "Business Expenses", "Business lunch", "Clothing", "Coffee", "Communal", "Events", "Film/Enjoyment",
@@ -37,27 +81,29 @@
       "Sport", "Taxi", "Tech", "Transport", "Travel"
     ];
 
-    const fixedColors = [
-      "#8e8e8e", "#e3a8c4", "#d88ac6", "#f4c771", "#c1d8e5", "#e5c04b", "#3b5a76",
-      "#bb8e77", "#acb1c1", "#c0a3c4", "#76e29b", "#6fa3f7", "#ffb6a3", "#62a7d9", "#cc8e6b",
-      "#a0d68c", "#9bd69d", "#a9c8d1", "#f0a1bb", "#6b9db3", "#c8c8c8", "#a9c8d1"
-    ];
+    if (rawData.length > 0) {
+      const fixedColors = [
+        "#8e8e8e", "#e3a8c4", "#d88ac6", "#f4c771", "#c1d8e5", "#e5c04b", "#3b5a76",
+        "#bb8e77", "#acb1c1", "#c0a3c4", "#76e29b", "#6fa3f7", "#ff8e70", "#4d7cbf", "#cc8e6b",
+        "#a0d68c", "#9bd69d", "#a9c8d1", "#f0a1bb", "#6b9db3", "#c8c8c8", "#a9c8d1"
+      ];
 
-    const availableCategories = categories.filter(cat =>
-      rawData.some(day => day[cat] !== undefined)
-    ).sort();
+      availableCategories = categories.filter(cat =>
+        rawData.some(day => day[cat] !== undefined)
+      ).sort();
 
-    const daySums = rawData.map(day =>
-      Object.values(day).reduce((a, b) => a + b, 0)
-    );
-    const maxTotal = Math.max(...daySums) * 1.1;
+      datasets = availableCategories.map((cat, i) => ({
+        label: cat,
+        data: rawData.map(day => +(day[cat] || 0).toFixed(2)),
+        backgroundColor: fixedColors[categories.indexOf(cat)],
+        hidden: false
+      }));
 
-    let datasets = availableCategories.map((cat, i) => ({
-      label: cat,
-      data: rawData.map(day => +(day[cat] || 0).toFixed(2)),
-      backgroundColor: fixedColors[categories.indexOf(cat)],
-      hidden: false
-    }));
+      chartData = {
+        labels: rawData.map((_, i) => `Day ${i + 1}`),
+        datasets: datasets
+      };
+    }
 
     const updateChart = () => {
       datasets.forEach((ds, i) => {
@@ -75,13 +121,10 @@
       chart.update();
     };
 
-    const ctx = document.getElementById('spendingChart').getContext('2d');
+    // Initialize chart with data (either empty or populated)
     const chart = new Chart(ctx, {
       type: 'bar',
-      data: {
-        labels: rawData.map((_, i) => `Day ${i + 1}`),
-        datasets: datasets
-      },
+      data: chartData,
       options: {
         responsive: true,
         plugins: {
@@ -105,8 +148,10 @@
       }
     });
 
+    // Add checkboxes for categories (if data exists)
     const container = document.getElementById('checkboxes-container');
-    if (container) {
+    if (container && rawData.length > 0 && availableCategories.length > 0) {
+      container.style.display = 'block';
       availableCategories.forEach((cat, i) => {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -127,5 +172,18 @@
         container.appendChild(document.createElement('br'));
       });
     }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const form = document.querySelector('form[action="{% url 'save_prediction' %}"]');
+    const hiddenInput = document.getElementById('prediction_data_input');
+
+    if (form && hiddenInput) {
+      form.addEventListener('submit', () => {
+        hiddenInput.value = JSON.stringify(rawData);
+      });
+    }
+  });
+
   </script>
 {% endblock %}
+

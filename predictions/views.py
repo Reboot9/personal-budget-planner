@@ -1,17 +1,19 @@
+import json
 import os
 
 import pandas as pd
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.sites import requests
-from django.core.exceptions import ValidationError
-from django.http import JsonResponse
-from django.shortcuts import render, redirect
-from django.urls import reverse_lazy
-from django.views.generic import FormView, ListView
+from django.core.exceptions import ValidationError, PermissionDenied
+from django.http import JsonResponse, HttpResponseRedirect, HttpResponseBadRequest
+from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse_lazy, reverse
+from django.views import View
+from django.views.generic import FormView, ListView, DeleteView
 from django.views.generic import TemplateView
 
 from .forms import UserFileUploadForm, PredictionForm
-from .models import UserFileUpload, TransactionCategory, Transaction
+from .models import UserFileUpload, TransactionCategory, Transaction, UserPrediction, PredictionDay, PredictionCategory
 from .services.budget_prediction import BudgetPredictionModel
 from predictions.tasks import train_and_predict_task
 from celery.result import AsyncResult
@@ -27,15 +29,15 @@ def prediction_task_status(request, task_id):
             {key: (value if value is not None else 0) for key, value in day.items()}
             for day in prediction
         ]
-        # cleaned_prediction = [
-        #     {'Taxi': 4, 'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
-        #      'Restaurant': 16.35557, },
-        #     {'Coffee': 16.475573, 'Learning': 24, 'Market': 15.977781, 'Phone': 15.803815,},
-        #     {'Coffee': 16.475573, 'Learning': 20, 'Phone': 15.803815,
-        #      'Restaurant': 16.35557, 'Taxi': 16.80649},
-        #     {'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
-        #      'Restaurant': 16.35557, 'Taxi': 16.80649}
-        # ]
+        cleaned_prediction = [
+            {'Taxi': 4, 'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
+             'Restaurant': 16.35557, },
+            {'Coffee': 16.475573, 'Learning': 24, 'Market': 15.977781, 'Phone': 15.803815,},
+            {'Coffee': 16.475573, 'Learning': 20, 'Phone': 15.803815,
+             'Restaurant': 16.35557, 'Taxi': 16.80649},
+            {'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
+             'Restaurant': 16.35557, 'Taxi': 16.80649}
+        ]
         request.session['prediction_data'] = cleaned_prediction
         return JsonResponse({'status': 'done', 'result': cleaned_prediction})
     return JsonResponse({'status': 'pending'})
@@ -135,6 +137,16 @@ class PredictionFormView(LoginRequiredMixin, FormView):
     template_name = 'prediction_form.html'
     form_class = PredictionForm
 
+    def get(self, request, *args, **kwargs):
+        form = self.form_class()
+        saved_predictions = UserPrediction.objects.filter(user=request.user) \
+            .prefetch_related('days') \
+            .order_by('-created_at')
+        return self.render_to_response({
+            'form': form,
+            'saved_predictions': saved_predictions
+        })
+
     def form_valid(self, form):
         categories = form.cleaned_data['category']
         date_from = form.cleaned_data.get('date_from')
@@ -158,23 +170,78 @@ class PredictionFormView(LoginRequiredMixin, FormView):
         # return render(self.request, 'prediction_result.html', {'prediction': predictions, 'form': form})
 
     def form_invalid(self, form):
-        return self.render_to_response({'form': form})
+        saved_predictions = UserPrediction.objects.filter(user=self.request.user).prefetch_related('days').order_by('-created_at')
+        return self.render_to_response({
+            'form': form,
+            'saved_predictions': saved_predictions
+        })
 
-
-import json
 
 class PredictionResultView(TemplateView):
     template_name = 'prediction_result.html'
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        prediction_data = self.request.session.get('prediction_data', [])
 
-        context['prediction'] = prediction_data
+        prediction_id = self.kwargs.get('pk')
+        context['readonly'] = bool(self.kwargs.get('pk'))
 
-        # if prediction_data:
-        #     predictions = json.loads(prediction_data)
-        #     context['prediction'] = json.dumps(predictions)
-        # else:
-        #     context['prediction'] = '[]'
+        if prediction_id:
+            prediction = get_object_or_404(UserPrediction, pk=prediction_id, user=self.request.user)
+            days_data = []
+            for day in prediction.days.order_by('order'):
+                day_dict = {cat.category.name: float(cat.amount) for cat in day.categories.all()}
+                days_data.append(day_dict)
+            context['prediction'] = json.dumps(days_data)
+        else:
+            days_data = self.request.session.get('prediction_data', [])
+
+        context['prediction'] = json.dumps(days_data)
+        context['prediction_length'] = len(days_data)
+
         return context
+
+class SavePredictionView(LoginRequiredMixin, View):
+    def post(self, request):
+        data_raw = request.POST.get('data', '')
+        if not data_raw:
+            return HttpResponseBadRequest("No prediction data provided.")
+
+        try:
+            data = json.loads(data_raw)
+        except json.JSONDecodeError:
+            return HttpResponseBadRequest("Invalid JSON in prediction data.")
+
+        name = request.POST.get('name', '').strip()
+
+        user_prediction = UserPrediction.objects.create(user=request.user, name=name)
+        days = [PredictionDay(prediction=user_prediction, order=i + 1) for i in range(len(data))]
+        PredictionDay.objects.bulk_create(days)
+
+        days = list(user_prediction.days.all())
+        categories = []
+        for i, day_data in enumerate(data):
+            for category_name, amount in day_data.items():
+                category = TransactionCategory.objects.filter(name=category_name).first()
+                if category:
+                    categories.append(PredictionCategory(
+                        prediction_day=days[i],
+                        category=category,
+                        amount=amount
+                    ))
+        PredictionCategory.objects.bulk_create(categories)
+
+        # Delete prediction data from session after saving
+        request.session.pop('prediction_data', None)
+
+        return redirect('home')
+
+class DeletePredictionView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        prediction = get_object_or_404(UserPrediction, pk=kwargs['pk'], user_id=self.request.user.id)
+
+        if prediction.user != request.user:
+            raise PermissionDenied("You do not have permission to delete this prediction.")
+
+        prediction.delete()
+        return redirect('prediction_form')

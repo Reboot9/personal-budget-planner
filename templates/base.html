@@ -30,10 +30,10 @@
                             <a class="nav-link" href="{% url 'file-upload' %}">Upload</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="{% url 'file-list' %}">My Files</a>
+                            <a class="nav-link" href="{% url 'file-list' %}">Files</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="{% url 'prediction_form' %}">Predict budget</a>
+                            <a class="nav-link" href="{% url 'prediction_form' %}">Predictions</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="{% url 'logout' %}">Logout</a>
@@ -106,7 +106,9 @@
                             modal.show();
 
                             // Set flag in localStorage to indicate task is done
-                            localStorage.setItem('taskCompleted', 'true');
+                            modalElement.addEventListener('hidden.bs.modal', () => {
+                                localStorage.setItem('taskCompleted', 'true');
+                            });
                         }
                     } else {
                         // Retry after 5 seconds if the task is not done
@@ -117,11 +119,16 @@
 
         // Check task status on page load if there's a task ID in the session
         window.onload = function() {
-            const taskId = "{{ request.session.task_id }}";
-            if (taskId && !localStorage.getItem('taskCompleted')) {
+            const taskId = "{{ request.session.task_id|default:'' }}";
+            if (taskId.trim() !== '' && !localStorage.getItem('taskCompleted')) {
                 checkTaskStatus(taskId);
             }
         }
+
+        document.querySelector('#taskCompletionModal .btn-primary')
+          .addEventListener('click', () => {
+            localStorage.setItem('taskCompleted', 'true');
+          });
     </script>
 </body>
 </html>

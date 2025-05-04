@@ -44,22 +44,26 @@ class PredictionAlgorithm(models.Model):
         return self.name
 
 
-class PredictionModel(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    model_file = models.FileField(upload_to='models/', null=True, blank=True)
+class UserPrediction(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='predictions')
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    name = models.CharField(max_length=100, blank=True)  # optional for user labeling
 
-    def __str__(self):
-        return f"Model for {self.user.username}"
+class PredictionDay(models.Model):
+    prediction = models.ForeignKey(UserPrediction, on_delete=models.CASCADE, related_name='days')
+    order = models.PositiveIntegerField()  # e.g., Day 1, Day 2, ...
 
-    def save_model(self, model):
-        with open(self.model_file.path, 'wb') as f:
-            pickle.dump(model, f)
+    class Meta:
+        unique_together = ('prediction', 'order')
+        ordering = ['order']
 
-    def load_model(self):
-        with open(self.model_file.path, 'rb') as f:
-            return pickle.load(f)
+class PredictionCategory(models.Model):
+    prediction_day = models.ForeignKey(PredictionDay, on_delete=models.CASCADE, related_name='categories')
+    category = models.ForeignKey(TransactionCategory, on_delete=models.SET_NULL, null=True, blank=True)
+    amount = models.FloatField()
+
+    class Meta:
+        unique_together = ('prediction_day', 'category')
 
 
 class UserFileUpload(models.Model):
