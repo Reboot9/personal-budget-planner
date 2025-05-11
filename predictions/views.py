@@ -13,7 +13,7 @@ from django.views.generic import FormView, ListView, DeleteView
 from django.views.generic import TemplateView
 
 from .forms import UserFileUploadForm, PredictionForm
-from .models import UserFileUpload, TransactionCategory, Transaction, UserPrediction, PredictionDay, PredictionCategory
+from .models import UserFileUpload, TransactionCategory, Transaction, UserPrediction, PredictionDay, PredictionCategory, PredictionAlgorithm
 from .services.budget_prediction import BudgetPredictionModel
 from predictions.tasks import train_and_predict_task
 from celery.result import AsyncResult
@@ -30,14 +30,20 @@ def prediction_task_status(request, task_id):
             for day in prediction
         ]
         cleaned_prediction = [
-            {'Taxi': 4, 'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
-             'Restaurant': 16.35557, },
-            {'Coffee': 16.475573, 'Learning': 24, 'Market': 15.977781, 'Phone': 15.803815,},
-            {'Coffee': 16.475573, 'Learning': 20, 'Phone': 15.803815,
-             'Restaurant': 16.35557, 'Taxi': 16.80649},
+            {'Taxi': 14, 'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
+             'Restaurant': 16.35557},
+            {'Coffee': 16.475573, 'Learning': 24, 'Market': 15.977781, 'Phone': 15.803815},
+            {'Coffee': 16.475573, 'Learning': 20, 'Phone': 15.803815, 'Restaurant': 16.35557, 'Taxi': 16.80649},
             {'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
-             'Restaurant': 16.35557, 'Taxi': 16.80649}
+             'Restaurant': 16.35557, 'Taxi': 16.80649},
+            {'Taxi': 15.2, 'Coffee': 14.32022, 'Learning': 18.5, 'Market': 17.2, 'Phone': 15.6, 'Restaurant': 17.9,
+             'Sport': 12.3},
+            {'Taxi': 13.8, 'Coffee': 15.5, 'Learning': 17.0, 'Market': 16.8, 'Phone': 16.2, 'Restaurant': 14.5,
+             'Sport': 14.0},
+            {'Taxi': 16.0, 'Coffee': 15.2, 'Learning': 19.0, 'Market': 17.5, 'Phone': 16.8, 'Restaurant': 18.0,
+             'Sport': 13.5, 'Travel': 11.0}
         ]
+
         request.session['prediction_data'] = cleaned_prediction
         return JsonResponse({'status': 'done', 'result': cleaned_prediction})
     return JsonResponse({'status': 'pending'})
@@ -47,6 +53,23 @@ class HomeView(LoginRequiredMixin, TemplateView):
     template_name = "home.html"
     login_url = "login"
     redirect_field_name = "next"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        latest_prediction = UserPrediction.objects.filter(user=self.request.user).order_by('-created_at').first()
+        context['readonly'] = True
+        if latest_prediction:
+            days_data = []
+            for day in latest_prediction.days.order_by('order'):
+                day_dict = {cat.category.name: float(cat.amount) for cat in day.categories.all()}
+                days_data.append(day_dict)
+            context['prediction'] = json.dumps(days_data)
+            context['prediction_length'] = len(days_data)
+
+        else:
+            context['prediction'] = None
+            context['prediction_length'] = 0
+        return context
 
 
 class FileUploadView(LoginRequiredMixin, FormView):
@@ -142,9 +165,13 @@ class PredictionFormView(LoginRequiredMixin, FormView):
         saved_predictions = UserPrediction.objects.filter(user=request.user) \
             .prefetch_related('days') \
             .order_by('-created_at')
+        algorithms = PredictionAlgorithm.objects.all()
+        has_transactions = Transaction.objects.filter(user=request.user).exists()
         return self.render_to_response({
             'form': form,
-            'saved_predictions': saved_predictions
+            'saved_predictions': saved_predictions,
+            'algorithms': algorithms,
+            'has_transactions': has_transactions,
         })
 
     def form_valid(self, form):
@@ -167,8 +194,6 @@ class PredictionFormView(LoginRequiredMixin, FormView):
 
         return redirect('prediction_form')
 
-        # return render(self.request, 'prediction_result.html', {'prediction': predictions, 'form': form})
-
     def form_invalid(self, form):
         saved_predictions = UserPrediction.objects.filter(user=self.request.user).prefetch_related('days').order_by('-created_at')
         return self.render_to_response({
@@ -177,7 +202,7 @@ class PredictionFormView(LoginRequiredMixin, FormView):
         })
 
 
-class PredictionResultView(TemplateView):
+class PredictionResultView(LoginRequiredMixin, TemplateView):
     template_name = 'prediction_result.html'
 
     def get_context_data(self, **kwargs):
@@ -192,7 +217,6 @@ class PredictionResultView(TemplateView):
             for day in prediction.days.order_by('order'):
                 day_dict = {cat.category.name: float(cat.amount) for cat in day.categories.all()}
                 days_data.append(day_dict)
-            context['prediction'] = json.dumps(days_data)
         else:
             days_data = self.request.session.get('prediction_data', [])
 

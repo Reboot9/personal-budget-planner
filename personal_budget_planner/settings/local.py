@@ -9,15 +9,15 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8080"
 ]
 
-if DEBUG:
-    INSTALLED_APPS += [
-        "debug_toolbar",
-    ]
-
-    MIDDLEWARE.insert(
-        0,
-        "debug_toolbar.middleware.DebugToolbarMiddleware",
-    )
+# if DEBUG:
+#     INSTALLED_APPS += [
+#         "debug_toolbar",
+#     ]
+#
+#     MIDDLEWARE.insert(
+#         0,
+#         "debug_toolbar.middleware.DebugToolbarMiddleware",
+#     )
 
 
 def get_internal_ips() -> list[str]:

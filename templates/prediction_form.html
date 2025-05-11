@@ -52,8 +52,23 @@
               {% endif %}
             </div>
           </fieldset>
+          <fieldset class="mb-4">
+            <legend class="h5">Prediction Algorithm</legend>
+            <div class="form-group">
+              {% for algorithm in algorithms %}
+                <div class="form-check mb-1">
+                  <input class="form-check-input" type="radio" name="algorithm" id="algo-{{ algorithm.id }}"
+                         value="{{ algorithm.id }}" {% if forloop.first %}checked{% endif %} disabled>
+                  <label class="form-check-label" for="algo-{{ algorithm.id }}">
+                    {{ algorithm.name }}
+                  </label>
+                </div>
+              {% endfor %}
+              <small class="text-muted">Algorithm selection is currently locked.</small>
+            </div>
+          </fieldset>
 
-          <button type="submit" class="btn btn-primary w-100">Predict</button>
+          <button type="submit" class="btn btn-primary w-100" {% if not has_transactions %}disabled{% endif %}>Predict</button>
         </form>
 
         <hr class="my-5">

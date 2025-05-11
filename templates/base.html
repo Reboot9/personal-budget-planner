@@ -27,10 +27,7 @@
                             <a class="nav-link" href="{% url 'home' %}">Dashboard</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="{% url 'file-upload' %}">Upload</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'file-list' %}">Files</a>
+                            <a class="nav-link" href="{% url 'file-upload' %}">Files</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="{% url 'prediction_form' %}">Predictions</a>
@@ -93,42 +90,44 @@
 
     {% block extra_js %}{% endblock %}
     <script>
-        // Function to check the task status
         function checkTaskStatus(taskId) {
             fetch(`/planner/task-status/${taskId}/`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'done') {
-                        // Check if modal has already been shown in this session
-                        if (!localStorage.getItem('taskCompleted')) {
-                            // Show the modal if the task is complete and not shown before
-                            const modal = new bootstrap.Modal(document.getElementById('taskCompletionModal'));
+                        const savedId = localStorage.getItem('completedTaskId');
+                        if (savedId !== taskId) {
+                            const modalElement = document.getElementById('taskCompletionModal');
+                            const modal = new bootstrap.Modal(modalElement);
                             modal.show();
 
-                            // Set flag in localStorage to indicate task is done
                             modalElement.addEventListener('hidden.bs.modal', () => {
-                                localStorage.setItem('taskCompleted', 'true');
+                                localStorage.setItem('completedTaskId', taskId);
                             });
                         }
                     } else {
-                        // Retry after 5 seconds if the task is not done
                         setTimeout(() => checkTaskStatus(taskId), 5000);
                     }
                 });
         }
 
-        // Check task status on page load if there's a task ID in the session
-        window.onload = function() {
+        window.onload = function () {
             const taskId = "{{ request.session.task_id|default:'' }}";
-            if (taskId.trim() !== '' && !localStorage.getItem('taskCompleted')) {
+            if (taskId.trim() !== '') {
                 checkTaskStatus(taskId);
             }
-        }
+        };
 
-        document.querySelector('#taskCompletionModal .btn-primary')
-          .addEventListener('click', () => {
-            localStorage.setItem('taskCompleted', 'true');
-          });
+        // Also handle the "Go to Predictions" button
+        document.addEventListener('DOMContentLoaded', function () {
+            const goToBtn = document.querySelector('#taskCompletionModal .btn-primary');
+            if (goToBtn) {
+                goToBtn.addEventListener('click', () => {
+                    const taskId = "{{ request.session.task_id|default:'' }}";
+                    localStorage.setItem('completedTaskId', taskId);
+                });
+            }
+        });
     </script>
 </body>
 </html>
