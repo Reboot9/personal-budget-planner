@@ -20,7 +20,6 @@ def train_and_predict_task(user_id, transaction_ids, n_days):
     model = BudgetPredictionModel(user_id=user_id)
     model.train(transactions)
     predictions = model.predict(n_days=n_days)
-    predictions = convert_to_builtin_type(predictions)
 
     # Convert predictions to Python float to ensure JSON serializability
     # Assuming predictions is a numpy array or list with numpy float32 types

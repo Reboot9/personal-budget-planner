@@ -199,72 +199,63 @@ class DataPreprocessor:
         logger.info(f'Recursive raw output Y: {y_recursive_raw_seq_list.shape}')
 
         return {
-            "X_train": X_train_seq_scaled,
-            "y_train": y_train_seq_scaled,
-            "X_val": X_val_seq_scaled,
-            "y_val": y_val_seq_scaled,
-            "X_test_direct_eval": X_test_seq_all_scaled,
-            "y_test_direct_eval": y_test_seq_all_scaled,
-            "X_initial_recursive": X_initial_recursive_scaled,
-            "y_recursive": y_recursive_scaled_seq,
-            "X_initial_recursive_raw": X_initial_recursive_raw,
-            "y_recursive_raw_seq": y_recursive_raw_seq_list
+            "train_set_scaled_seq": (X_train_seq_scaled, y_train_seq_scaled),
+            "val_set_scaled_seq": (X_val_seq_scaled, y_val_seq_scaled),
+            "test_direct_eval_scaled_seq": (X_test_seq_all_scaled, y_test_seq_all_scaled),
+            "recursive_test_scaled_seq": (X_initial_recursive_scaled, y_recursive_scaled_seq),
+            "recursive_test_raw_X_initial": X_initial_recursive_raw,  # Зберігання вихідного X для рекурсії
+            "recursive_test_raw_y_seq_list": y_recursive_raw_seq_list,  # Зберігання списку вихідних Y для рекурсії
+            "train_target_raw_segment": y_train_raw_segment,  # Для MASE
+            "scalers": (self.x_scaler, self.y_scaler)
         }
 
-    def prepare_all_data(self, x_all_raw: np.ndarray, y_all_raw: np.ndarray) -> dict:
+    def prepare_all_data(self, x_all_raw: np.ndarray, y_all_raw: np.ndarray, target_cols: list):
         """
         Prepare all data required for training, validation, and recursive testing.
         This method encapsulates the original data preparation logic and returns the sequences as needed.
         """
-        logger.info(' --- Data Preparation Start (inside prepare_all_data) ---')
-        prepared_data = self._execute_original_data_preparation_logic(x_all_raw, y_all_raw)
+        self.target_cols = target_cols
+        self.n_input_features = x_all_raw.shape[1]
+        self.n_target_categories = y_all_raw.shape[1]
 
-        self.X_train_s = prepared_data["X_train"]
-        self.y_train_s = prepared_data["y_train"]
-        self.X_val_s = prepared_data["X_val"]
-        self.y_val_s = prepared_data["y_val"]
-        self.X_test_direct_eval_s = prepared_data["X_test_direct_eval"]
-        self.y_test_direct_eval_s = prepared_data["y_test_direct_eval"]
+        prepared_data_dict = self._execute_original_data_preparation_logic(x_all_raw, y_all_raw)
 
-        self.X_initial_recursive_s = prepared_data["X_initial_recursive"]
-        self.y_recursive_s = prepared_data["y_recursive"]
-        self.X_initial_recursive_raw = prepared_data["X_initial_recursive_raw"]
-        self.y_recursive_raw_seq = prepared_data["y_recursive_raw_seq"]
+        self.X_train_s, self.y_train_s = prepared_data_dict["train_set_scaled_seq"]
+        self.X_val_s, self.y_val_s = prepared_data_dict["val_set_scaled_seq"]
+        self.X_test_direct_eval_s, self.y_test_direct_eval_s = prepared_data_dict["test_direct_eval_scaled_seq"]
 
-        # For MASE calculation
-        self.y_train_raw_for_mase = y_all_raw[:int(x_all_raw.shape[0] * self.train_ratio)]
-
-        logger.info(' --- Data Preparation Finished (inside prepare_all_data) ---')
-
-        return prepared_data
+        self.X_initial_recursive_s, self.y_recursive_s = prepared_data_dict["recursive_test_scaled_seq"]
+        self.X_initial_recursive_raw = prepared_data_dict["recursive_test_raw_X_initial"]
+        self.y_recursive_raw_seq = prepared_data_dict[
+            "recursive_test_raw_y_seq_list"]
+        self.y_train_raw_for_mase = prepared_data_dict["train_target_raw_segment"]
 
     def scale_input_for_prediction(self, x_raw_window: np.ndarray) -> np.ndarray:
-        """Масштабує вікно вихідних вхідних ознак для прогнозування та додає розмірність пакету."""
+        """Scales a raw input feature window for prediction and adds a batch dimension."""
         if self.n_input_features is None:
-            raise RuntimeError("Препроцесор повинен бути спочатку навчений за допомогою prepare_all_data().")
+            raise RuntimeError("Preprocessor must first be fitted using prepare_all_data().")
         if not hasattr(self.x_scaler, 'data_min_') or self.x_scaler.data_min_ is None:
-            raise RuntimeError("Масштабувальник X не навчений. Спочатку викличте prepare_all_data().")
+            raise RuntimeError("X scaler is not fitted. Call prepare_all_data() first.")
         if x_raw_window.shape != (self.window_size, self.n_input_features):
             raise ValueError(
-                f"Вхідні вихідні дані повинні мати форму ({self.window_size}, {self.n_input_features}), отримано {x_raw_window.shape}")
+                f"Input raw data must have shape ({self.window_size}, {self.n_input_features}), but got {x_raw_window.shape}")
 
         scaled_data = self.x_scaler.transform(x_raw_window)
-        return np.expand_dims(scaled_data, axis=0)  # Форма (1, window_size, n_features)
+        return np.expand_dims(scaled_data, axis=0)  # Shape (1, window_size, n_features)
 
     def inverse_transform_predictions(self, y_pred_scaled: np.ndarray) -> np.ndarray:
-        """Обернено трансформує масштабовані прогнози до їх вихідного масштабу."""
+        """Inverse-transforms scaled predictions back to their original scale."""
         if self.n_target_categories is None:
-            raise RuntimeError("Препроцесор повинен бути спочатку навчений за допомогою prepare_all_data().")
+            raise RuntimeError("Preprocessor must first be fitted using prepare_all_data().")
         if not hasattr(self.y_scaler, 'data_min_') or self.y_scaler.data_min_ is None:
-            raise RuntimeError("Масштабувальник Y не навчений. Спочатку викличте prepare_all_data().")
+            raise RuntimeError("Y scaler is not fitted. Call prepare_all_data() first.")
 
         original_shape = y_pred_scaled.shape
 
-        # Обробка різних вхідних розмірностей для y_pred_scaled
+        # Handle different input dimensions of y_pred_scaled
         if y_pred_scaled.ndim == 3:  # (num_samples, forecast_horizon, n_outputs)
             reshaped_for_scaling = y_pred_scaled.reshape(-1, self.n_target_categories)
         elif y_pred_scaled.ndim == 2:  # (forecast_horizon_or_samples, n_outputs)
-            # Це може бути (forecast_horizon, n_outputs) або (samples, n_outputs), якщо fh=1 і стиснуто
             reshaped_for_scaling = y_pred_scaled
         elif y_pred_scaled.ndim == 1:
             if self.n_target_categories == 1:
@@ -272,30 +263,28 @@ class DataPreprocessor:
             else:
                 reshaped_for_scaling = y_pred_scaled.reshape(1, self.n_target_categories)
         else:
-            raise ValueError(f"Непідтримувана форма y_pred_scaled: {y_pred_scaled.shape}")
+            raise ValueError(f"Unsupported shape for y_pred_scaled: {y_pred_scaled.shape}")
 
         unscaled = self.y_scaler.inverse_transform(reshaped_for_scaling)
 
-        if original_shape == unscaled.shape:  # Якщо reshaped_for_scaling вже мав правильну 2D форму
+        if original_shape == unscaled.shape:
             return unscaled
         if y_pred_scaled.ndim == 3:  # (num_samples, forecast_horizon, n_outputs)
             return unscaled.reshape(original_shape)
         if y_pred_scaled.ndim == 2 and original_shape[0] == self.forecast_horizon and original_shape[
             1] == self.n_target_categories:
-            return unscaled  # Вже (forecast_horizon, n_outputs)
-        if y_pred_scaled.ndim == 1 and 1 < self.n_target_categories == len(
-                y_pred_scaled):  # (n_outputs,) для fh=1
-            return unscaled.squeeze()  # назад до 1D (n_outputs)
-        if y_pred_scaled.ndim == 1 and self.n_target_categories == 1:  # (forecast_horizon,)
-            return unscaled.squeeze()  # назад до 1D (forecast_horizon)
+            return unscaled
+        if y_pred_scaled.ndim == 1 and 1 < self.n_target_categories == len(y_pred_scaled):
+            return unscaled.squeeze()
+        if y_pred_scaled.ndim == 1 and self.n_target_categories == 1:
+            return unscaled.squeeze()
 
         try:
             return unscaled.reshape(original_shape)
         except ValueError:
             warnings.warn(
-                f"Не вдалося змінити форму немасштабованих прогнозів з {unscaled.shape} назад до вихідної {original_shape}. Повернення як {unscaled.shape}.")
+                f"Could not reshape unscaled predictions from {unscaled.shape} back to original shape {original_shape}. Returning as {unscaled.shape}.")
             return unscaled
-
 
 def build_model_architecture(hp: kt.HyperParameters,
                              window_size: int,
