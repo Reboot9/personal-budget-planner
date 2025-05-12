@@ -12,17 +12,9 @@ def get_logger(name: str,
                log_file_name: str = 'log.log',
                level: int = logging.INFO) -> logging.Logger:
     """
-    Створює та налаштовує логер, який пише у файл та консоль.
-
-    Args:
-        name (str): Ім'я логера.
-        log_file_name (str): Назва файлу для логування.
-        level (int): Рівень логування (наприклад, logging.INFO, logging.DEBUG).
-
-    Returns:
-        logging.Logger: Налаштований об'єкт логера.
+    Creates and configures a logger that writes to both a file and the console.
     """
-    # Створюємо директорію для логів, якщо її не існує
+    # Create the directory for logs if it does not exist
     log_dir = pathlib.Path(__file__).parents[1].resolve() / 'logs'
     log_file_path = log_dir / log_file_name
 
@@ -31,15 +23,15 @@ def get_logger(name: str,
 
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-    # Обробник для запису у файл
+    # Handler for writing logs to a file
     try:
         file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
         file_handler.setFormatter(formatter)
     except Exception as e:
-        sys.stderr.write(f"Помилка створення файлового обробника логів {log_file_name}: {e}\n")
+        sys.stderr.write(f"Error creating file handler for log {log_file_name}: {e}\n")
         file_handler = None
 
-    # Обробник для виводу в консоль
+    # Handler for outputting logs to the console
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
 
@@ -49,7 +41,7 @@ def get_logger(name: str,
     if file_handler:
         logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
-    logger.propagate = False  # Уникаємо дублювання логів, якщо кореневий логер налаштований
+    logger.propagate = False  # Avoid duplicate logs if the root logger is set up
     return logger
 
 
@@ -61,32 +53,18 @@ def check_datetime_index_continuity(df: pd.DataFrame,
 
     It verifies if all dates within the observed range (min to max date in the index)
     are present, according to the expected frequency.
-
-    Args:
-        df (pd.DataFrame): The DataFrame to check.
-        expected_freq (str): The expected frequency for the complete date range
-                             (e.g., 'D' for daily, 'B' for business days, 'H' for hourly).
-        verbose (bool): If True, prints detailed information about the check.
-
-    Returns:
-        Tuple[bool, Optional[pd.DatetimeIndex]]:
-            - bool: True if the DatetimeIndex is continuous within its span at the
-                    specified frequency, False otherwise. Also True for an empty DataFrame.
-            - Optional[pd.DatetimeIndex]: A DatetimeIndex containing the missing dates if any
-                                          are found, otherwise None. None is also returned if
-                                          the index is not a DatetimeIndex or the DataFrame is empty.
     """
     if verbose:
-        print("\n--- Перевірка неперервності часової шкали індексу ---")
+        print("\n--- Checking DatetimeIndex Continuity ---")
 
     if not isinstance(df.index, pd.DatetimeIndex):
         if verbose:
-            print("ПОПЕРЕДЖЕННЯ: Індекс DataFrame не є DatetimeIndex.")
+            print("WARNING: The DataFrame index is not a DatetimeIndex.")
         return False, None
 
     if df.empty:
         if verbose:
-            print("ІНФОРМАЦІЯ: DataFrame порожній. Перевірка неперервності не потрібна (вважається неперервним).")
+            print("INFO: The DataFrame is empty. Continuity check is not needed (assumed continuous).")
         return True, None
 
     # Ensure the index is sorted for correct min(), max(), and difference() operations.
@@ -96,39 +74,31 @@ def check_datetime_index_continuity(df: pd.DataFrame,
     actual_max_date = df_sorted_index.max()
 
     if verbose:
-        print(f"Фактичний діапазон дат в DataFrame: з {actual_min_date} по {actual_max_date}")
-        print(f"Тривалість фактичного діапазону: {actual_max_date - actual_min_date}")
-        print(f"Кількість унікальних дат в індексі: {len(df_sorted_index.unique())}")
+        print(f"Actual date range in the DataFrame: from {actual_min_date} to {actual_max_date}")
+        print(f"Actual duration of the date range: {actual_max_date - actual_min_date}")
+        print(f"Number of unique dates in the index: {len(df_sorted_index.unique())}")
 
     # Create the ideal, continuous date range based on actual min/max and expected frequency.
     ideal_full_range = pd.date_range(start=actual_min_date, end=actual_max_date, freq=expected_freq)
 
     if verbose:
-        print(f"Очікувана кількість дат в цьому діапазоні (частота '{expected_freq}'): {len(ideal_full_range)}")
+        print(f"Expected number of dates in this range (frequency '{expected_freq}'): {len(ideal_full_range)}")
 
     # Find dates present in the ideal range but missing from the actual index.
     missing_dates = ideal_full_range.difference(df_sorted_index)
 
     if not missing_dates.empty:
         if verbose:
-            print(f"ВИЯВЛЕНО ПРОПУЩЕНІ ДАТИ! Кількість: {len(missing_dates)}")
+            print(f"MISSING DATES FOUND! Number: {len(missing_dates)}")
         return False, missing_dates
     else:
         if verbose:
-            print("ІНФОРМАЦІЯ: Часова шкала індексу неперервна в межах свого діапазону.")
+            print("INFO: The DatetimeIndex is continuous within its range.")
         return True, None
 
 def check_features(df: pd.DataFrame, features_dict: Dict[str, List[str]], verbose: bool = False) -> Optional[List[str]]:
     """
     Checks if all DataFrame columns are included in the features dictionary.
-
-    Args:
-        df (pd.DataFrame): The DataFrame to check.
-        features_dict (Dict[str, List[str]]): Dictionary with feature groups as keys and lists of feature names as values.
-        verbose (bool): If True, prints detailed information about features not included in the dictionary.
-
-    Returns:
-        Optional[List[str]]: List of features not included in the dictionary if any, None otherwise.
     """
     features_counter = 0
     print(' --- Features check ---')
@@ -136,17 +106,17 @@ def check_features(df: pd.DataFrame, features_dict: Dict[str, List[str]], verbos
         print(f"{k}: {len(v)}")
         features_counter += len(v)
     print(' --------------------- ')
-    print(f'Загальна кількість ознак в словнику: {features_counter}')
-    print(f'Загальна кількість стовпчиків датафрейму: {len(df.columns)}')
+    print(f'Total number of features in the dictionary: {features_counter}')
+    print(f'Total number of columns in the DataFrame: {len(df.columns)}')
 
     if features_counter < len(df.columns):
         temp_all_features = sum([list(v) for _, v in features_dict.items()], [])
         not_included_features = list(filter(lambda x: x not in temp_all_features, df.columns.to_list()))
         not_included_count = len(df.columns) - features_counter
         if not_included_count <= 10 or verbose:
-            print(f'Не увійшли в словник: {not_included_features}')
+            print(f'Not included in the dictionary: {not_included_features}')
         else:
-            print(f'Не увійшли в словник: {not_included_count}')
+            print(f'Not included in the dictionary: {not_included_count}')
         return not_included_features
     else:
         return None
@@ -155,32 +125,13 @@ def select_features_multicollinearity_graph_target_corr(
     X: pd.DataFrame,
     y: pd.DataFrame, # DataFrame for one or more target variables
     predictor_correlation_threshold: float = 0.8,
-    min_target_correlation_for_group_representative: float = 0.01 # Optional: minimum correlation with target to be considered
+    min_target_correlation_for_group_representative: float = 0.01 # minimum correlation with target to be considered
 ) -> list[str]:
     """
     Selects features by building a graph of highly correlated predictor features and
     then choosing one feature from each connected component (group of highly
     correlated features). The choice is based on which feature within the component
     has the highest absolute correlation with any of the target variables.
-
-    Args:
-        X (pd.DataFrame): DataFrame of predictor features.
-        y (pd.DataFrame): DataFrame of target variables.
-        predictor_correlation_threshold (float): Absolute correlation threshold to consider
-                                                 two predictors as highly correlated.
-        min_target_correlation_for_group_representative (float):
-                                                 Optional. If a group of highly correlated
-                                                 features is identified, only features from
-                                                 that group that also have at least this
-                                                 absolute correlation with any target
-                                                 will be considered as potential representatives.
-                                                 The one with the max correlation is chosen.
-                                                 If none meet this, the one with max (even if low)
-                                                 is chosen, or potentially none if all are too low.
-                                                 For simplicity here, we always pick one based on max.
-
-    Returns:
-        list[str]: List of selected feature names, sorted alphabetically.
     """
     if not isinstance(X, pd.DataFrame):
         raise ValueError("X must be a pandas DataFrame.")

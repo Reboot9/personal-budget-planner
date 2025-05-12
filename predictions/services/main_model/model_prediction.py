@@ -28,9 +28,8 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 class DataPreprocessor:
     """
-    Обробляє завантаження, масштабування, розділення та секвенування даних часових рядів
-    для навчання моделі та прогнозування. Ця версія має на меті точно відтворити
-    логіку підготовки даних оригінального ноутбука.
+    Handles loading, scaling, splitting, and sequencing time series data for model training and forecasting.
+    This version aims to replicate the exact data preparation logic of the original notebook.
     """
 
     def __init__(self,
@@ -38,44 +37,44 @@ class DataPreprocessor:
                  forecast_horizon: int,
                  train_ratio: float = 0.7,
                  val_ratio: float = 0.15,
-                 n_recursive_test_steps: int = 5):
+                 n_recursive_test_steps: int = 7):
         self.window_size = window_size
         self.forecast_horizon = forecast_horizon
         self.train_ratio = train_ratio
         self.val_ratio = val_ratio
         self.n_recursive_test_steps = n_recursive_test_steps
 
-        # Масштабувальники будуть ініціалізовані та навчені в логіці підготовки
+        # Scalers will be initialized and fitted in the data preparation logic
         self.x_scaler = MinMaxScaler()
         self.y_scaler = MinMaxScaler()
 
         self.n_input_features = None
         self.n_target_categories = None
-        self.target_cols = None  # Список назв цільових колонок
+        self.target_cols = None  # List of target column names
 
-        # Атрибути даних, які будуть заповнені prepare_all_data
+        # Data attributes to be populated by prepare_all_data
         self.X_train_s, self.y_train_s = None, None
         self.X_val_s, self.y_val_s = None, None
         self.X_test_direct_eval_s, self.y_test_direct_eval_s = None, None
 
-        # Для рекурсивного прогнозування (масштабовані та вихідні, як в оригіналі)
-        self.X_initial_recursive_s, self.y_recursive_s = None, None  # Масштабовані
-        self.X_initial_recursive_raw, self.y_recursive_raw_seq = None, None  # Вихідні
+        # For recursive forecasting (scaled and raw outputs as in the original)
+        self.X_initial_recursive_s, self.y_recursive_s = None, None  # Scaled
+        self.X_initial_recursive_raw, self.y_recursive_raw_seq = None, None  # Raw
 
-        self.y_train_raw_for_mase = None  # Немасштабований сегмент y_train для розрахунку MASE
+        self.y_train_raw_for_mase = None  # Unscaled y_train segment for MASE calculation
 
     def _create_sequences_from_set(self, X_data_scaled: np.ndarray,
                                    y_data_scaled: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
-        Створює вхідні-вихідні послідовності для прогнозування часових рядів з масштабованих масивів даних.
-        Використовує атрибути екземпляра для window_size, forecast_horizon, n_input_features, n_target_categories.
+        Creates input-output sequences for time series forecasting from scaled data arrays.
+        Uses instance attributes for window_size, forecast_horizon, n_input_features, n_target_categories.
         """
         X_sequences_list, y_sequences_list = [], []
 
         if self.n_input_features is None or self.n_target_categories is None:
-            # Ця перевірка гарантує, що prepare_all_data спочатку встановила ці критичні розмірності
+            # This check ensures that prepare_all_data has first set these critical dimensions
             raise RuntimeError(
-                "_create_sequences_from_set викликано до того, як були встановлені n_input_features/n_target_categories.")
+                "_create_sequences_from_set was called before n_input_features/n_target_categories were set.")
 
         num_possible_sequences = len(X_data_scaled) - self.window_size - self.forecast_horizon + 1
 
@@ -91,19 +90,19 @@ class DataPreprocessor:
 
     def _execute_original_data_preparation_logic(self, x_all_raw: np.ndarray, y_all_raw: np.ndarray) -> dict:
         """
-        Цей метод містить основну логіку підготовки даних, точно наслідуючи
-        оригінальну функцію `prepare_time_series_data` з ноутбука.
-        Він використовує атрибути екземпляра для конфігурації (наприклад, self.window_size)
-        та навчає масштабувальники екземпляра (self.x_scaler, self.y_scaler).
+        This method contains the core data preparation logic, precisely following
+        the original `prepare_time_series_data` function from the notebook.
+        It uses instance attributes for configuration (e.g., self.window_size)
+        and fits instance scalers (self.x_scaler, self.y_scaler).
         """
         if not (0 < self.train_ratio < 1 and 0 < self.val_ratio < 1 and (self.train_ratio + self.val_ratio) < 1):
-            raise ValueError("train_ratio та val_ratio повинні бути між 0 та 1, а їх сума меншою за 1.")
+            raise ValueError("train_ratio and val_ratio must be between 0 and 1, and their sum must be less than 1.")
         if self.n_recursive_test_steps < 1:
-            raise ValueError("n_recursive_test_steps повинен бути щонайменше 1.")
+            raise ValueError("n_recursive_test_steps must be at least 1.")
 
         n_total_samples = x_all_raw.shape[0]
 
-        # Хронологічне розділення даних
+        # Chronological data split
         train_end_idx = int(n_total_samples * self.train_ratio)
         val_end_idx = train_end_idx + int(n_total_samples * self.val_ratio)
 
@@ -112,12 +111,12 @@ class DataPreprocessor:
                                                                                      train_end_idx:val_end_idx]
         X_test_raw_segment, y_test_raw_segment = x_all_raw[val_end_idx:], y_all_raw[val_end_idx:]
 
-        logger.info(' --- Сегменти вихідних даних (всередині _execute_original_data_preparation_logic) --- ')
-        logger.info(f'Тренувальні вихідні X: {X_train_raw_segment.shape}, y: {y_train_raw_segment.shape}')
-        logger.info(f'Валідаційні вихідні X: {X_val_raw_segment.shape}, y: {y_val_raw_segment.shape}')
-        logger.info(f'Тестові вихідні X: {X_test_raw_segment.shape}, y: {y_test_raw_segment.shape}')
+        logger.info(' --- Data Segments (inside _execute_original_data_preparation_logic) --- ')
+        logger.info(f'Training data X: {X_train_raw_segment.shape}, y: {y_train_raw_segment.shape}')
+        logger.info(f'Validation data X: {X_val_raw_segment.shape}, y: {y_val_raw_segment.shape}')
+        logger.info(f'Test data X: {X_test_raw_segment.shape}, y: {y_test_raw_segment.shape}')
 
-        # Ініціалізація та навчання масштабувальників (використовуючи масштабувальники екземпляра)
+        # Initializing and fitting scalers (using instance scalers)
         X_train_scaled = self.x_scaler.fit_transform(X_train_raw_segment)
         X_val_scaled = self.x_scaler.transform(X_val_raw_segment)
         X_test_scaled = self.x_scaler.transform(X_test_raw_segment)
@@ -126,24 +125,24 @@ class DataPreprocessor:
         y_val_scaled = self.y_scaler.transform(y_val_raw_segment)
         y_test_scaled = self.y_scaler.transform(y_test_raw_segment)
 
-        # Створення послідовностей за допомогою методу екземпляра _create_sequences_from_set
+        # Creating sequences using the instance method _create_sequences_from_set
         X_train_seq_scaled, y_train_seq_scaled = self._create_sequences_from_set(X_train_scaled, y_train_scaled)
         X_val_seq_scaled, y_val_seq_scaled = self._create_sequences_from_set(X_val_scaled, y_val_scaled)
         X_test_seq_all_scaled, y_test_seq_all_scaled = self._create_sequences_from_set(X_test_scaled, y_test_scaled)
 
         logger.info(
-            ' --- Створені масштабовані послідовності (всередині _execute_original_data_preparation_logic) --- ')
+            ' --- Created Scaled Sequences (inside _execute_original_data_preparation_logic) --- ')
         logger.info(
-            f'Тренувальні масштабовані послідовності X: {X_train_seq_scaled.shape}, y: {y_train_seq_scaled.shape}')
-        logger.info(f'Валідаційні масштабовані послідовності X: {X_val_seq_scaled.shape}, y: {y_val_seq_scaled.shape}')
+            f'Training scaled sequences X: {X_train_seq_scaled.shape}, y: {y_train_seq_scaled.shape}')
+        logger.info(f'Validation scaled sequences X: {X_val_seq_scaled.shape}, y: {y_val_seq_scaled.shape}')
         logger.info(
-            f'Тестові масштабовані послідовності X: {X_test_seq_all_scaled.shape}, y: {y_test_seq_all_scaled.shape}')
+            f'Test scaled sequences X: {X_test_seq_all_scaled.shape}, y: {y_test_seq_all_scaled.shape}')
 
-        # Підготовка до рекурсивного тестування (логіка з оригінального скрипта)
+        # Preparation for recursive testing (original script logic)
         if X_test_seq_all_scaled.shape[0] < self.n_recursive_test_steps:
-            warnings.warn(f"Недостатньо послідовностей у X_test_seq_all_scaled ({X_test_seq_all_scaled.shape[0]}) "
-                          f"щоб вибрати {self.n_recursive_test_steps} для рекурсивного тестування. "
-                          f"Дані рекурсивного тесту будуть порожніми.")
+            warnings.warn(f"Not enough sequences in X_test_seq_all_scaled ({X_test_seq_all_scaled.shape[0]}) "
+                          f"to select {self.n_recursive_test_steps} for recursive testing. "
+                          f"Recursive test data will be empty.")
             X_initial_recursive_scaled = np.empty((0, self.window_size, self.n_input_features))
             y_recursive_scaled_seq = np.empty((0, self.forecast_horizon, self.n_target_categories))
             X_initial_recursive_raw = np.empty((0, self.window_size, self.n_input_features))
@@ -152,11 +151,11 @@ class DataPreprocessor:
         else:
             recursive_seq_start_idx_in_sequences = X_test_seq_all_scaled.shape[0] - self.n_recursive_test_steps
 
-            # Перевірка меж для X_initial_recursive_raw
+            # Bound check for X_initial_recursive_raw
             if recursive_seq_start_idx_in_sequences + self.window_size > X_test_raw_segment.shape[0]:
-                warnings.warn(f"Індекс поза межами для X_initial_recursive_raw. "
-                              f"Початковий індекс вихідних даних {recursive_seq_start_idx_in_sequences} + вікно {self.window_size} > довжина сегменту вихідних даних {X_test_raw_segment.shape[0]}"
-                              "X_initial_recursive_raw буде порожнім.")
+                warnings.warn(f"Index out of bounds for X_initial_recursive_raw. "
+                              f"Start index {recursive_seq_start_idx_in_sequences} + window {self.window_size} > length of raw data segment {X_test_raw_segment.shape[0]}"
+                              "X_initial_recursive_raw will be empty.")
                 X_initial_recursive_raw = np.empty((0, self.window_size, self.n_input_features))
             else:
                 X_initial_recursive_raw = X_test_raw_segment[
@@ -166,7 +165,7 @@ class DataPreprocessor:
             X_initial_recursive_scaled = X_test_seq_all_scaled[recursive_seq_start_idx_in_sequences].copy()
             y_recursive_scaled_seq = y_test_seq_all_scaled[recursive_seq_start_idx_in_sequences:].copy()
 
-            # Побудова вихідних послідовностей Y для кожного рекурсивного кроку
+            # Building raw output sequences Y for each recursive step
             temp_y_recursive_raw_list = []
             for i in range(self.n_recursive_test_steps):
                 y_raw_start_idx_for_step_i = recursive_seq_start_idx_in_sequences + self.window_size + i
@@ -175,100 +174,69 @@ class DataPreprocessor:
 
                 if y_raw_end_idx_for_step_i > y_test_raw_segment.shape[0]:
                     y_seq_raw = y_test_raw_segment[y_raw_start_idx_for_step_i:]
-                    warnings.warn(f"ПОПЕРЕДЖЕННЯ: Недостатньо вихідних Y для кроку {i} рекурсивного тесту, "
-                                  f"запитано до індексу {y_raw_end_idx_for_step_i}, але довжина y_test_raw_segment {y_test_raw_segment.shape[0]}. "
-                                  f"Взято {len(y_seq_raw)} елементів.")
+                    warnings.warn(f"WARNING: Not enough raw Y data for step {i} of the recursive test, "
+                                  f"requested up to index {y_raw_end_idx_for_step_i}, but length of y_test_raw_segment {y_test_raw_segment.shape[0]}. "
+                                  f"Taken {len(y_seq_raw)} elements.")
                     if len(y_seq_raw) < self.forecast_horizon and len(
-                            y_seq_raw) > 0:  # Доповнити, якщо необхідно і можливо
+                            y_seq_raw) > 0:  # Pad if needed and possible
                         padding_needed = self.forecast_horizon - len(y_seq_raw)
-                        # Просте доповнення останнім значенням або NaNs. Використання NaNs для ясності.
+                        # Simple padding with last value or NaNs. Using NaNs for clarity.
                         padding = np.full((padding_needed, y_test_raw_segment.shape[1]), np.nan)
                         y_seq_raw = np.vstack([y_seq_raw, padding])
                     elif len(y_seq_raw) == 0:
                         y_seq_raw = np.full((self.forecast_horizon, y_test_raw_segment.shape[1]),
-                                            np.nan)  # Повністю NaN, якщо немає даних
+                                            np.nan)  # Full NaN if no data
                 else:
                     y_seq_raw = y_test_raw_segment[y_raw_start_idx_for_step_i:y_raw_end_idx_for_step_i]
 
                 temp_y_recursive_raw_list.append(y_seq_raw)
             y_recursive_raw_seq_list = np.array(temp_y_recursive_raw_list)
 
-        logger.info(' --- Для рекурсивного тестування (всередині _execute_original_data_preparation_logic) ---')
-        logger.info(f'Вихідний X початковий для рекурсії: {X_initial_recursive_raw.shape}')
-        logger.info(f'Масштабований X початковий для рекурсії: {X_initial_recursive_scaled.shape}')
-        logger.info(f'Вихідні Y послідовності для рекурсії: {y_recursive_raw_seq_list.shape}')
-        logger.info(f'Масштабовані Y послідовності для рекурсії: {y_recursive_scaled_seq.shape}')
+        logger.info(' --- Recursive Testing (inside _execute_original_data_preparation_logic) ---')
+        logger.info(f'Initial recursive scaled data X: {X_initial_recursive_scaled.shape}')
+        logger.info(f'Initial recursive raw data X: {X_initial_recursive_raw.shape}')
+        logger.info(f'Recursive scaled output Y: {y_recursive_scaled_seq.shape}')
+        logger.info(f'Recursive raw output Y: {y_recursive_raw_seq_list.shape}')
 
         return {
-            "train_set_scaled_seq": (X_train_seq_scaled, y_train_seq_scaled),
-            "val_set_scaled_seq": (X_val_seq_scaled, y_val_seq_scaled),
-            "test_direct_eval_scaled_seq": (X_test_seq_all_scaled, y_test_seq_all_scaled),
-            "recursive_test_scaled_seq": (X_initial_recursive_scaled, y_recursive_scaled_seq),
-            "recursive_test_raw_X_initial": X_initial_recursive_raw,  # Зберігання вихідного X для рекурсії
-            "recursive_test_raw_y_seq_list": y_recursive_raw_seq_list,  # Зберігання списку вихідних Y для рекурсії
-            "train_target_raw_segment": y_train_raw_segment,  # Для MASE
-            "scalers": (self.x_scaler, self.y_scaler)
+            "X_train": X_train_seq_scaled,
+            "y_train": y_train_seq_scaled,
+            "X_val": X_val_seq_scaled,
+            "y_val": y_val_seq_scaled,
+            "X_test_direct_eval": X_test_seq_all_scaled,
+            "y_test_direct_eval": y_test_seq_all_scaled,
+            "X_initial_recursive": X_initial_recursive_scaled,
+            "y_recursive": y_recursive_scaled_seq,
+            "X_initial_recursive_raw": X_initial_recursive_raw,
+            "y_recursive_raw_seq": y_recursive_raw_seq_list
         }
 
-    def prepare_all_data(self, x_all_raw: np.ndarray, y_all_raw: np.ndarray, target_cols: list):
+    def prepare_all_data(self, x_all_raw: np.ndarray, y_all_raw: np.ndarray) -> dict:
         """
-        Основний публічний метод для підготовки всіх даних. Він викликає внутрішню логіку
-        та заповнює атрибути екземпляра.
+        Prepare all data required for training, validation, and recursive testing.
+        This method encapsulates the original data preparation logic and returns the sequences as needed.
         """
-        self.target_cols = target_cols
-        # Встановлюємо розмірності спочатку, оскільки вони використовуються _create_sequences_from_set
-        self.n_input_features = x_all_raw.shape[1]
-        self.n_target_categories = y_all_raw.shape[1]
+        logger.info(' --- Data Preparation Start (inside prepare_all_data) ---')
+        prepared_data = self._execute_original_data_preparation_logic(x_all_raw, y_all_raw)
 
-        logger.info(f"--- DataPreprocessor: викликано prepare_all_data ---")
-        logger.info(f"Форма вхідних вихідних X: {x_all_raw.shape}, Форма вхідних вихідних Y: {y_all_raw.shape}")
-        logger.info(
-            f"Вікно: {self.window_size}, Горизонт: {self.forecast_horizon}, Тренування: {self.train_ratio}, Валідація: {self.val_ratio}")
+        self.X_train_s = prepared_data["X_train"]
+        self.y_train_s = prepared_data["y_train"]
+        self.X_val_s = prepared_data["X_val"]
+        self.y_val_s = prepared_data["y_val"]
+        self.X_test_direct_eval_s = prepared_data["X_test_direct_eval"]
+        self.y_test_direct_eval_s = prepared_data["y_test_direct_eval"]
 
-        # Виклик методу, що містить оригінальну логіку
-        prepared_data_dict = self._execute_original_data_preparation_logic(x_all_raw, y_all_raw)
+        self.X_initial_recursive_s = prepared_data["X_initial_recursive"]
+        self.y_recursive_s = prepared_data["y_recursive"]
+        self.X_initial_recursive_raw = prepared_data["X_initial_recursive_raw"]
+        self.y_recursive_raw_seq = prepared_data["y_recursive_raw_seq"]
 
-        # Розпакування словника в атрибути екземпляра
-        self.X_train_s, self.y_train_s = prepared_data_dict["train_set_scaled_seq"]
-        self.X_val_s, self.y_val_s = prepared_data_dict["val_set_scaled_seq"]
-        self.X_test_direct_eval_s, self.y_test_direct_eval_s = prepared_data_dict["test_direct_eval_scaled_seq"]
+        # For MASE calculation
+        self.y_train_raw_for_mase = y_all_raw[:int(x_all_raw.shape[0] * self.train_ratio)]
 
-        self.X_initial_recursive_s, self.y_recursive_s = prepared_data_dict["recursive_test_scaled_seq"]
-        self.X_initial_recursive_raw = prepared_data_dict["recursive_test_raw_X_initial"]
-        self.y_recursive_raw_seq = prepared_data_dict[
-            "recursive_test_raw_y_seq_list"]
+        logger.info(' --- Data Preparation Finished (inside prepare_all_data) ---')
 
-        self.y_train_raw_for_mase = prepared_data_dict["train_target_raw_segment"]
-
-        logger.info("\n--- DataPreprocessor: Зведення заповнених атрибутів після prepare_all_data ---")
-        logger.info(
-            f"К-сть вхідних ознак: {self.n_input_features}, К-сть цільових категорій: {self.n_target_categories}")
-        logger.info(f"Цільові колонки: {self.target_cols}")
-        logger.info(
-            f"Тренувальні послідовності: X_train_s {self.X_train_s.shape if self.X_train_s is not None else 'None'}, y_train_s {self.y_train_s.shape if self.y_train_s is not None else 'None'}")
-        logger.info(
-            f"Валідаційні послідовності: X_val_s {self.X_val_s.shape if self.X_val_s is not None else 'None'}, y_val_s {self.y_val_s.shape if self.y_val_s is not None else 'None'}")
-        logger.info(
-            f"Тестові (пряма оцінка) послідовності: X_test_direct_eval_s {self.X_test_direct_eval_s.shape if self.X_test_direct_eval_s is not None else 'None'}, y_test_direct_eval_s {self.y_test_direct_eval_s.shape if self.y_test_direct_eval_s is not None else 'None'}")
-
-        if self.X_initial_recursive_s is not None and self.X_initial_recursive_s.size > 0:
-            logger.info(
-                f"Початковий рекурсивний вхід (масштабований): X_initial_recursive_s {self.X_initial_recursive_s.shape}")
-            logger.info(f"Рекурсивні цільові значення (масштабовані): y_recursive_s {self.y_recursive_s.shape}")
-            logger.info(
-                f"Початковий рекурсивний вхід (вихідний): X_initial_recursive_raw {self.X_initial_recursive_raw.shape}")
-            logger.info(
-                f"Рекурсивні цільові значення (вихідні послідовності): y_recursive_raw_seq {self.y_recursive_raw_seq.shape}")
-        else:
-            logger.info("Дані рекурсивного тесту не були згенеровані або порожні.")
-
-        logger.info(
-            f"Форма y_train_raw_for_mase: {self.y_train_raw_for_mase.shape if self.y_train_raw_for_mase is not None else 'None'}")
-        logger.info(
-            f"Масштабувальник X навчений: {hasattr(self.x_scaler, 'data_min_') and self.x_scaler.data_min_ is not None}")
-        logger.info(
-            f"Масштабувальник Y навчений: {hasattr(self.y_scaler, 'data_min_') and self.y_scaler.data_min_ is not None}")
-        logger.info("--- DataPreprocessor: prepare_all_data завершено ---\n")
+        return prepared_data
 
     def scale_input_for_prediction(self, x_raw_window: np.ndarray) -> np.ndarray:
         """Масштабує вікно вихідних вхідних ознак для прогнозування та додає розмірність пакету."""
@@ -334,7 +302,7 @@ def build_model_architecture(hp: kt.HyperParameters,
                              n_features: int,
                              forecast_horizon: int,
                              n_outputs: int) -> keras.Model:
-    """Визначає та компілює архітектуру нейронної мережі на основі гіперпараметрів."""
+    """Determines and compiles model architecture depending on hyperparams."""
     model = keras.Sequential()
     model.add(keras.Input(shape=(window_size, n_features)))
     model_type = hp.Choice('model_type', values=['lstm', 'gru', 'tcn'])
@@ -387,7 +355,7 @@ def build_model_architecture(hp: kt.HyperParameters,
 
 
 class CustomHyperModel(kt.HyperModel):
-    """Обгортка Keras Tuner HyperModel для функції побудови моделі."""
+    """Keras Tuner HyperModel wrapper for model-building function."""
 
     def __init__(self, window_size: int, n_features: int, forecast_horizon: int, n_outputs: int,
                  batch_size_min: int, batch_size_max: int, batch_size_step: int):
@@ -405,7 +373,7 @@ class CustomHyperModel(kt.HyperModel):
                                         self.forecast_horizon, self.n_outputs)
 
     def fit(self, hp, model, *args, **kwargs):
-        """Метод fit для Keras Tuner, включає batch_size як гіперпараметр для налаштування."""
+        """Fit method for Keras Tuner, includes batch_size as a hyperparameter for tuning."""
         batch_size = hp.Int('batch_size',
                             min_value=self.batch_size_min,
                             max_value=self.batch_size_max,
@@ -414,7 +382,7 @@ class CustomHyperModel(kt.HyperModel):
 
 
 class ModelTrainer:
-    """Обробляє налаштування гіперпараметрів моделі та фінальне навчання."""
+    """Handles the model hyperparameter tuning and final training."""
 
     def __init__(self,
                  data_preprocessor: DataPreprocessor,
@@ -426,7 +394,7 @@ class ModelTrainer:
         self.dp = data_preprocessor
         if self.dp.n_input_features is None:
             raise ValueError(
-                "DataPreprocessor повинен запустити prepare_all_data() перед ініціалізацією ModelTrainer для встановлення розмірностей.")
+                "DataPreprocessor must run prepare_all_data() before initializing ModelTrainer to set dimensions.")
 
         self.checkpoint_filepath = checkpoint_filepath
         self.tuner_directory_path = tuner_directory_path
@@ -446,9 +414,9 @@ class ModelTrainer:
     def tune_hyperparameters(self, max_trials: int = 10, executions_per_trial: int = 1,
                              epochs: int = 20,
                              project_name: str = 'time_series_tuning'):
-        """Виконує пошук гіперпараметрів за допомогою Keras Tuner."""
+        """Performs hyperparameter search using Keras Tuner."""
         if self.dp.X_train_s is None or self.dp.X_val_s is None:
-            raise RuntimeError("Препроцесор даних не підготував тренувальні/валідаційні дані.")
+            raise RuntimeError("Data preprocessor has not prepared training/validation data.")
 
         tuner = kt.RandomSearch(
             self.hypermodel,
@@ -462,7 +430,7 @@ class ModelTrainer:
         early_stopping_callback = keras.callbacks.EarlyStopping(
             monitor='val_loss', patience=10, verbose=1, restore_best_weights=True
         )
-        logger.info("Початок налаштування гіперпараметрів...")
+        logger.info("Starting hyperparameter tuning...")
         tuner.search(
             self.dp.X_train_s, self.dp.y_train_s,
             epochs=epochs,
@@ -471,22 +439,22 @@ class ModelTrainer:
             verbose=1
         )
         self.best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
-        logger.info("\n--- Знайдені найкращі гіперпараметри ---")
-        for hp_name in self.best_hps.values:  # Ітерація по фактичних назвах гіперпараметрів
+        logger.info("\n--- Best hyperparameters found ---")
+        for hp_name in self.best_hps.values:  # Iterate through actual hyperparameter names
             logger.info(f"- {hp_name}: {self.best_hps.get(hp_name)}")
 
-        temp_best_model = self.hypermodel.build(self.best_hps)  # Побудова з найкращими гіперпараметрами
-        logger.info("\nЗведення моделі, побудованої з найкращими гіперпараметрами:")
-        temp_best_model.summary(print_fn=logger.info)  # Направлення summary в логер
+        temp_best_model = self.hypermodel.build(self.best_hps)  # Build with the best hyperparameters
+        logger.info("\nSummary of the model built with the best hyperparameters:")
+        temp_best_model.summary(print_fn=logger.info)  # Direct summary to logger
         return self.best_hps
 
     def train_final_model(self, final_train_epochs: int = 150, early_stopping_patience: int = 20):
-        """Навчає фінальну модель з використанням найкращих знайдених гіперпараметрів."""
+        """Trains the final model using the best-found hyperparameters."""
         if self.best_hps is None:
-            raise RuntimeError("Гіперпараметри не були налаштовані. Спочатку викличте tune_hyperparameters.")
+            raise RuntimeError("Hyperparameters have not been tuned. Call tune_hyperparameters first.")
 
-        logger.info("\nПобудова та навчання фінальної моделі з найкращими гіперпараметрами...")
-        self.trained_model = build_model_architecture(  # Використання окремої функції
+        logger.info("\nBuilding and training the final model with the best hyperparameters...")
+        self.trained_model = build_model_architecture(  # Using a separate function
             self.best_hps,
             window_size=self.dp.window_size,
             n_features=self.dp.n_input_features,
@@ -495,7 +463,7 @@ class ModelTrainer:
         )
         best_batch_size = self.best_hps.get('batch_size')
         if best_batch_size is None:
-            warnings.warn("Розмір пакету не знайдено в best_hps з тюнера, використовується стандартний 32.")
+            warnings.warn("Batch size not found in best_hps from tuner, defaulting to 32.")
             best_batch_size = 32
 
         callbacks_list = [
@@ -505,7 +473,7 @@ class ModelTrainer:
                                             save_weights_only=False, verbose=1),
             keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=10, min_lr=1e-7, verbose=1)
         ]
-        logger.info(f"\nПочаток фінального навчання до {final_train_epochs} епох з batch_size={best_batch_size}...")
+        logger.info(f"\nStarting final training for {final_train_epochs} epochs with batch_size={best_batch_size}...")
         self.training_history = self.trained_model.fit(
             self.dp.X_train_s, self.dp.y_train_s,
             epochs=final_train_epochs,
@@ -514,58 +482,53 @@ class ModelTrainer:
             callbacks=callbacks_list,
             verbose=1
         )
-        logger.info(f"\nФінальне навчання завершено.")
+        logger.info(f"\nFinal training completed.")
         if os.path.exists(self.checkpoint_filepath):
-            logger.info(f"Найкраща модель під час навчання збережена в {self.checkpoint_filepath}.")
+            logger.info(f"The best model during training was saved at {self.checkpoint_filepath}.")
             self.load_model(
                 self.checkpoint_filepath)
         else:
-            warnings.warn(f"Файл контрольної точки {self.checkpoint_filepath} не було створено. "
-                          "Модель у пам'яті може бути не найкращою, якщо рання зупинка відбулася до першого збереження.")
+            warnings.warn(f"Checkpoint file {self.checkpoint_filepath} was not created. "
+                          "The in-memory model may not be the best if early stopping occurred before the first save.")
         return self.trained_model
 
     def load_model(self, filepath: str):
-        """Завантажує попередньо навчену модель."""
-        logger.info(f"Завантаження моделі з {filepath}...")
+        """Loads a previously trained model."""
+        logger.info(f"Loading model from {filepath}...")
 
         custom_objects = {
             'TCN': TCN
         }
         self.trained_model = tf.keras.models.load_model(filepath, custom_objects=custom_objects)
-        logger.info("Модель успішно завантажена.")
-        logger.info("Зведення завантаженої моделі:")
+        logger.info("Model successfully loaded.")
+        logger.info("Summary of the loaded model:")
         self.trained_model.summary(print_fn=logger.info)
         return self.trained_model
 
 
 class Predictor:
-    """Обробляє створення прогнозів та їх оцінку."""
+    """Handles prediction creation and evaluation."""
 
     def __init__(self, model: keras.Model, data_preprocessor: DataPreprocessor):
         if not isinstance(model, keras.Model):
-            raise ValueError("Модель повинна бути екземпляром keras.Model.")
+            raise ValueError("The model must be an instance of keras.Model.")
         if not isinstance(data_preprocessor, DataPreprocessor):
-            raise ValueError("Препроцесор даних повинен бути екземпляром DataPreprocessor.")
+            raise ValueError("The data preprocessor must be an instance of DataPreprocessor.")
 
         self.model = model
         self.dp = data_preprocessor
 
     def predict_one_day(self, raw_data_for_window: np.ndarray) -> np.ndarray:
         """
-        Робить один прогноз на наступний період forecast_horizon.
-        Args:
-            raw_data_for_window: Масив Numpy форми (window_size, n_features) з вихідними даними ознак.
-        Returns:
-            Масив Numpy форми (forecast_horizon, n_outputs) з немасштабованими прогнозами.
+        Makes a single prediction for the next forecast period (forecast_horizon).
         """
         if raw_data_for_window.shape != (self.dp.window_size, self.dp.n_input_features):
             raise ValueError(
-                f"Вхідний raw_data_for_window повинен мати форму ({self.dp.window_size}, {self.dp.n_input_features}), "
-                f"отримано {raw_data_for_window.shape}")
+                f"Input raw_data_for_window must have shape ({self.dp.window_size}, {self.dp.n_input_features}), "
+                f"but got {raw_data_for_window.shape}")
 
         scaled_input_sequence = self.dp.scale_input_for_prediction(raw_data_for_window)
-        scaled_prediction = self.model.predict(scaled_input_sequence, verbose=0)[
-            0]  # Отримати (forecast_horizon, n_outputs)
+        scaled_prediction = self.model.predict(scaled_input_sequence, verbose=0)[0]  # Get (forecast_horizon, n_outputs)
         unscaled_prediction = self.dp.inverse_transform_predictions(scaled_prediction)
         return unscaled_prediction
 
@@ -573,34 +536,25 @@ class Predictor:
                             num_recursive_steps: int,
                             true_future_exogenous_raw: np.ndarray = None) -> np.ndarray:
         """
-        Робить рекурсивні прогнози на вказану кількість кроків.
-        Args:
-            initial_raw_window_data: Вихідні дані ознак для початкового вікна. Форма: (window_size, n_features).
-            num_recursive_steps: Кількість майбутніх кроків для прогнозування.
-            true_future_exogenous_raw: Необов'язково. Вихідні значення для майбутніх екзогенних ознак.
-                                       Потрібно, якщо n_features > n_outputs.
-                                       Форма: (num_recursive_steps - 1, n_exogenous_features).
-                                       n_exogenous_features = n_features - n_outputs.
-                                       i-й рядок відповідає екзогенним ознакам для входу (i+1)-го кроку прогнозування.
-        Returns:
-            Масив Numpy немасштабованих рекурсивних прогнозів. Форма: (num_recursive_steps, forecast_horizon, n_outputs).
+        Makes recursive predictions for the specified number of steps.
         """
         if initial_raw_window_data.shape != (self.dp.window_size, self.dp.n_input_features):
             raise ValueError(
-                f"initial_raw_window_data повинен мати форму ({self.dp.window_size}, {self.dp.n_input_features})")
+                f"initial_raw_window_data must have shape ({self.dp.window_size}, {self.dp.n_input_features})")
 
         n_exo_features = self.dp.n_input_features - self.dp.n_target_categories
         if n_exo_features > 0:
             if true_future_exogenous_raw is None:
                 raise ValueError(
-                    f"Модель має {n_exo_features} екзогенних ознак. true_future_exogenous_raw повинен бути наданий.")
+                    f"The model has {n_exo_features} exogenous features. true_future_exogenous_raw must be provided.")
             if true_future_exogenous_raw.shape[
-                0] < num_recursive_steps - 1:  # Потрібно достатньо для всіх, крім останнього кроку
+                0] < num_recursive_steps - 1:  # Needs enough rows for all except the last step
                 raise ValueError(
-                    f"true_future_exogenous_raw потребує {num_recursive_steps - 1} рядків для екзогенних ознак, отримано {true_future_exogenous_raw.shape[0]}")
+                    f"true_future_exogenous_raw requires {num_recursive_steps - 1} rows for exogenous features, "
+                    f"but got {true_future_exogenous_raw.shape[0]}")
             if true_future_exogenous_raw.shape[1] != n_exo_features:
                 raise ValueError(
-                    f"true_future_exogenous_raw повинен мати {n_exo_features} колонок, отримано {true_future_exogenous_raw.shape[1]}.")
+                    f"true_future_exogenous_raw must have {n_exo_features} columns, but got {true_future_exogenous_raw.shape[1]}.")
 
         current_scaled_input_sequence = self.dp.x_scaler.transform(initial_raw_window_data)
         all_recursive_predictions_scaled_list = []
@@ -608,17 +562,16 @@ class Predictor:
         for i in range(num_recursive_steps):
             model_input = np.expand_dims(current_scaled_input_sequence, axis=0)
             predicted_step_scaled_fh = self.model.predict(model_input, verbose=0)[
-                0]  # Форма (forecast_horizon, n_outputs)
+                0]  # Shape (forecast_horizon, n_outputs)
             all_recursive_predictions_scaled_list.append(predicted_step_scaled_fh)
 
             if i < num_recursive_steps - 1:
                 if self.dp.forecast_horizon != 1:
                     warnings.warn(
-                        "Логіка оновлення ознак рекурсивного прогнозування наразі припускає forecast_horizon=1 "
-                        "для вилучення цілей одного наступного кроку. Потрібна адаптація для >1.")
+                        "The recursive prediction logic currently assumes forecast_horizon=1 "
+                        "for extracting the targets of the next step. Adaptation is needed for >1.")
 
-                new_target_values_scaled = predicted_step_scaled_fh[0,
-                                           :]
+                new_target_values_scaled = predicted_step_scaled_fh[0, :]
 
                 new_last_row_features_scaled = np.zeros(self.dp.n_input_features)
                 new_last_row_features_scaled[:self.dp.n_target_categories] = new_target_values_scaled
@@ -630,7 +583,7 @@ class Predictor:
                     placeholder_targets = np.mean(current_scaled_input_sequence[:, :self.dp.n_target_categories],
                                                   axis=0)
                     temp_full_row_for_scaling_exo[0,
-                    :self.dp.n_target_categories] = placeholder_targets  # Використання масштабованих середніх
+                    :self.dp.n_target_categories] = placeholder_targets  # Use scaled means
                     temp_full_row_for_scaling_exo[0, self.dp.n_target_categories:] = raw_exo_for_next_step_input
 
                     scaled_full_row = self.dp.x_scaler.transform(temp_full_row_for_scaling_exo)
@@ -641,9 +594,9 @@ class Predictor:
                 current_scaled_input_sequence[-1, :] = new_last_row_features_scaled
 
         all_recursive_predictions_scaled_arr = np.array(all_recursive_predictions_scaled_list)
-        # Форма: (num_recursive_steps, forecast_horizon, n_outputs)
+        # Shape: (num_recursive_steps, forecast_horizon, n_outputs)
 
-        # Обернене перетворення всіх одразу
+        # Inverse transformation of all predictions at once
         num_steps, fh, n_out = all_recursive_predictions_scaled_arr.shape
         reshaped_for_inverse = all_recursive_predictions_scaled_arr.reshape(num_steps * fh, n_out)
         unscaled_predictions_flat = self.dp.y_scaler.inverse_transform(reshaped_for_inverse)
@@ -665,22 +618,22 @@ class Predictor:
         y_pred_arr = np.asarray(y_pred)
         y_train_unscaled_arr = np.asarray(y_train_unscaled)
 
-        # Перевірка розмірності даних, 2D: (samples, features_or_targets)
+        # Check dimensions of the data, 2D: (samples, features_or_targets)
         if y_train_unscaled_arr.ndim == 1: y_train_unscaled_arr = y_train_unscaled_arr.reshape(-1, 1)
         if y_true_arr.ndim == 1: y_true_arr = y_true_arr.reshape(-1, 1)
         if y_pred_arr.ndim == 1: y_pred_arr = y_pred_arr.reshape(-1, 1)
 
         if y_true_arr.shape[1] != y_train_unscaled_arr.shape[1] or y_pred_arr.shape[1] != y_train_unscaled_arr.shape[1]:
             warnings.warn(
-                f"MASE: Невідповідність колонок: y_true({y_true_arr.shape}), y_pred({y_pred_arr.shape}), y_train({y_train_unscaled_arr.shape})")
+                f"MASE: Mismatch in columns: y_true({y_true_arr.shape}), y_pred({y_pred_arr.shape}), y_train({y_train_unscaled_arr.shape})")
             return np.full(y_true_arr.shape[1] if y_true_arr.ndim > 1 else 1, np.nan)
 
         forecast_errors = np.abs(y_true_arr - y_pred_arr)
-        mean_absolute_forecast_error = np.mean(forecast_errors, axis=0)  # Середнє за часовими кроками для кожної цілі
+        mean_absolute_forecast_error = np.mean(forecast_errors, axis=0)  # Mean over time steps for each target
 
         if len(y_train_unscaled_arr) <= seasonality_period:
             warnings.warn(
-                f"MASE: Довжина y_train_unscaled ({len(y_train_unscaled_arr)}) <= сезонності ({seasonality_period}).")
+                f"MASE: Length of y_train_unscaled ({len(y_train_unscaled_arr)}) <= seasonality period ({seasonality_period}).")
             return np.full(y_true_arr.shape[1] if y_true_arr.ndim > 1 else 1, np.nan)
 
         naive_forecast_errors_train = np.abs(
@@ -688,7 +641,7 @@ class Predictor:
         mean_absolute_naive_error_train = np.mean(naive_forecast_errors_train, axis=0)
 
         mase_scores = np.full_like(mean_absolute_forecast_error, np.nan)
-        non_zero_denom_mask = mean_absolute_naive_error_train > 1e-9  # Уникнення ділення на нуль або дуже мале число
+        non_zero_denom_mask = mean_absolute_naive_error_train > 1e-9  # Avoid division by zero or very small number
         mase_scores[non_zero_denom_mask] = mean_absolute_forecast_error[non_zero_denom_mask] / \
                                            mean_absolute_naive_error_train[non_zero_denom_mask]
         return mase_scores
@@ -697,16 +650,11 @@ class Predictor:
                                     y_true_unscaled: np.ndarray,
                                     y_pred_unscaled: np.ndarray) -> dict:
         """
-        Оцінює один або кілька немасштабованих прогнозів відносно істинних значень.
-        Args:
-            y_true_unscaled: Істинні значення, форма (num_predictions_or_horizon_steps, n_outputs).
-            y_pred_unscaled: Прогнозовані значення, форма (num_predictions_or_horizon_steps, n_outputs).
-        Returns:
-            Словник метрик (MAE, RMSE, MASE для кожної цільової категорії та Середнє).
+        Evaluates one or more unscaled predictions against the true values.
         """
         if y_true_unscaled.shape != y_pred_unscaled.shape:
             raise ValueError(
-                f"y_true_unscaled ({y_true_unscaled.shape}) та y_pred_unscaled ({y_pred_unscaled.shape}) повинні мати однакову форму.")
+                f"y_true_unscaled ({y_true_unscaled.shape}) and y_pred_unscaled ({y_pred_unscaled.shape}) must have the same shape.")
         if y_true_unscaled.ndim == 1 and self.dp.n_target_categories > 1:  # (n_outputs,)
             y_true_unscaled = y_true_unscaled.reshape(1, -1)
             y_pred_unscaled = y_pred_unscaled.reshape(1, -1)
@@ -716,9 +664,10 @@ class Predictor:
 
         if y_true_unscaled.shape[1] != self.dp.n_target_categories:
             raise ValueError(
-                f"Кількість колонок ({y_true_unscaled.shape[1]}) повинна відповідати n_target_categories ({self.dp.n_target_categories})")
+                f"The number of columns ({y_true_unscaled.shape[1]}) must match n_target_categories ({self.dp.n_target_categories})")
         if self.dp.y_train_raw_for_mase is None:
-            raise RuntimeError("y_train_raw_for_mase недоступний в DataPreprocessor. Запустіть prepare_all_data.")
+            raise RuntimeError(
+                "y_train_raw_for_mase is not available in DataPreprocessor. Please run prepare_all_data.")
 
         metrics_summary = {}
         mae_scores = self._calculate_mae(y_true_unscaled, y_pred_unscaled)
@@ -732,7 +681,7 @@ class Predictor:
                 'MASE': mase_scores[i] if mase_scores.ndim > 0 else mase_scores
             }
 
-        metrics_summary['Середнє'] = {
+        metrics_summary['Average'] = {
             'MAE': np.nanmean(mae_scores),
             'RMSE': np.nanmean(rmse_scores),
             'MASE': np.nanmean(mase_scores)
@@ -740,9 +689,9 @@ class Predictor:
         return metrics_summary
 
     def evaluate_on_test_set(self):
-        """Оцінює модель на попередньо визначеному тестовому наборі для прямої оцінки."""
+        """Evaluates the model on the predefined test set for direct evaluation."""
         if self.dp.X_test_direct_eval_s is None or self.dp.X_test_direct_eval_s.shape[0] == 0:
-            logger.info("Тестовий набір для прямої оцінки порожній або не підготовлений. Пропуск оцінки.")
+            logger.info("Test set for direct evaluation is empty or not prepared. Skipping evaluation.")
             return None
 
         direct_predictions_norm = self.model.predict(self.dp.X_test_direct_eval_s, verbose=0)
@@ -760,7 +709,7 @@ class Predictor:
 def main():
     file_path_data_folder = pathlib.Path(__file__).parents[3].resolve() / 'data/intermediate'
 
-    print("Завантаження даних...")
+    print("Loading data...")
     X_train_df = pd.read_pickle(file_path_data_folder / 'X_train.pkl')
     X_test_df = pd.read_pickle(file_path_data_folder / 'X_test.pkl')
     y_train_df = pd.read_pickle(file_path_data_folder / 'y_train.pkl')
@@ -769,10 +718,10 @@ def main():
     X_raw_main = pd.concat([X_train_df, X_test_df], axis=0).to_numpy()
     y_raw_main = pd.concat([y_train_df, y_test_df], axis=0).to_numpy()
     target_cols_main = y_train_df.columns.tolist()
-    print(f'Вихідна форма X: {X_raw_main.shape}, Вихідна форма y: {y_raw_main.shape}, Цільові: {target_cols_main}')
+    print(f'Initial shape of X: {X_raw_main.shape}, Initial shape of y: {y_raw_main.shape}, Targets: {target_cols_main}')
 
-    # 1. Попередня обробка даних
-    print("\n--- Ініціалізація DataPreprocessor ---")
+    # 1. Data Preprocessing
+    print("\n--- Initializing DataPreprocessor ---")
     data_preprocessor = DataPreprocessor(
         window_size=WINDOW_SIZE_MAIN, forecast_horizon=FORECAST_HORIZON_MAIN,
         train_ratio=TRAIN_RATIO_MAIN, val_ratio=VAL_RATIO_MAIN,
@@ -780,8 +729,8 @@ def main():
     )
     data_preprocessor.prepare_all_data(X_raw_main, y_raw_main, target_cols_main)
 
-    # 2. Навчання моделі
-    print("\n--- Ініціалізація ModelTrainer ---")
+    # 2. Model Training
+    print("\n--- Initializing ModelTrainer ---")
 
     model_checkpoint = file_path_data_folder / f'model/{CHECKPOINT_FILEPATH_MAIN}'
     tuner_directory = file_path_data_folder / f'keras_tuner'
@@ -793,43 +742,43 @@ def main():
     train_new_model = True
     if os.path.exists(model_checkpoint):
         user_choice = input(
-            f"Знайдено існуючу модель за шляхом {model_checkpoint}. Завантажити її? (y/n, за замовчуванням y): ").lower()
+            f"Existing model found at {model_checkpoint}. Load it? (y/n, default y): ").lower()
         if user_choice == '' or user_choice == 'y':
             try:
-                print("Спроба завантажити існуючу модель...")
+                print("Attempting to load the existing model...")
                 model_trainer.load_model(str(model_checkpoint.resolve()))
                 if model_trainer.trained_model:
-                    print("Модель успішно завантажена. Пропуск налаштування та навчання.")
+                    print("Model successfully loaded. Skipping tuning and training.")
                     train_new_model = False
             except Exception as e:
-                print(f"Помилка завантаження існуючої моделі: {e}. Буде виконано перенавчання.")
+                print(f"Error loading existing model: {e}. Retraining will proceed.")
                 if os.path.exists(model_checkpoint): os.remove(
                     str(model_checkpoint.resolve()))
         else:
-            print("Перехід до перенавчання моделі.")
+            print("Proceeding with retraining the model.")
 
     if train_new_model:
-        print("\n--- Налаштування гіперпараметрів ---")
+        print("\n--- Hyperparameter Tuning ---")
         model_trainer.tune_hyperparameters(max_trials=TUNER_MAX_TRIALS_MAIN, epochs=TUNER_EPOCHS_MAIN)
-        print("\n--- Навчання фінальної моделі ---")
+        print("\n--- Training the Final Model ---")
         model_trainer.train_final_model(final_train_epochs=FINAL_TRAIN_EPOCHS_MAIN)
 
     if model_trainer.trained_model is None:
-        print("ПОМИЛКА: Модель не вдалося навчити або завантажити. Вихід.")
+        print("ERROR: Failed to train or load the model. Exiting.")
         exit()
 
-    # 3. Прогнозування та оцінка
-    print("\n--- Ініціалізація Predictor ---")
+    # 3. Prediction and Evaluation
+    print("\n--- Initializing Predictor ---")
     predictor = Predictor(model=model_trainer.trained_model, data_preprocessor=data_preprocessor)
 
-    # Приклад: Рекурсивне прогнозування
+    # Example: Recursive Prediction
     num_steps_for_recursion = N_RECURSIVE_TEST_STEPS_MAIN
     required_raw_len_for_recursion = WINDOW_SIZE_MAIN + (
-            num_steps_for_recursion - 1) + FORECAST_HORIZON_MAIN  # Максимальний потрібний індекс
+            num_steps_for_recursion - 1) + FORECAST_HORIZON_MAIN  # Maximum required index
 
     if len(X_raw_main) >= required_raw_len_for_recursion:
-        print(f"\n--- Рекурсивне прогнозування на {num_steps_for_recursion} кроків ---")
-        # Початкова точка для початкового вікна
+        print(f"\n--- Recursive prediction for {num_steps_for_recursion} steps ---")
+        # Initial point for the initial window
         rec_input_start_idx = len(X_raw_main) - required_raw_len_for_recursion
         if rec_input_start_idx < 0: rec_input_start_idx = 0
 
@@ -840,12 +789,12 @@ def main():
         if n_exo_main > 0:
             exo_start_idx = rec_input_start_idx + WINDOW_SIZE_MAIN
             exo_end_idx = exo_start_idx + (num_steps_for_recursion - 1)
-            if exo_end_idx <= len(X_raw_main):  # Перевірка, чи не виходимо за межі X_raw_main
+            if exo_end_idx <= len(X_raw_main):  # Check if we are not going beyond X_raw_main
                 true_future_exo_raw_main = X_raw_main[exo_start_idx: exo_end_idx,
                                            data_preprocessor.n_target_categories:]
             else:
                 print(
-                    f"Попередження: Недостатньо майбутніх вихідних даних для всіх {n_exo_main} екзогенних ознак. Пропуск рекурсивного прогнозування.")
+                    f"Warning: Insufficient future data for all {n_exo_main} exogenous features. Skipping recursive prediction.")
                 num_steps_for_recursion = 0
 
         if num_steps_for_recursion > 0:
@@ -855,15 +804,15 @@ def main():
                 true_future_exogenous_raw=true_future_exo_raw_main
             )
             print(
-                f"Немасштабовані рекурсивні прогнози (форма {recursive_predictions_unscaled.shape}):\n{recursive_predictions_unscaled}")
+                f"Unscaled recursive predictions (shape {recursive_predictions_unscaled.shape}):\n{recursive_predictions_unscaled}")
 
             reshaped_recursive_predictions_unscaled = recursive_predictions_unscaled.reshape(5, 5)
             predict_json = {f'Day {n + 1}': dict(zip(target_cols_main, reshaped_recursive_predictions_unscaled[n])) for
                             n in range(5)}
-            print(f'Прогноз у формі вкладеного JSON: {predict_json}')
-            # Істинні значення для цих рекурсивних кроків
+            print(f'Predictions in nested JSON format: {predict_json}')
+            # True values for these recursive steps
             y_true_rec_start = rec_input_start_idx + WINDOW_SIZE_MAIN
-            # Переконуємось, що y_true_rec_end не виходить за межі y_raw_main
+            # Ensure y_true_rec_end does not exceed the bounds of y_raw_main
             max_possible_y_elements = num_steps_for_recursion * FORECAST_HORIZON_MAIN
             available_y_elements = len(y_raw_main) - y_true_rec_start
 
@@ -872,8 +821,8 @@ def main():
 
             if actual_num_recursive_steps_for_eval < num_steps_for_recursion:
                 print(
-                    f"Попередження: Доступно менше істинних значень Y ({actual_num_recursive_steps_for_eval} кроків) для оцінки рекурсивних прогнозів, ніж було спрогнозовано ({num_steps_for_recursion} кроків). Оцінка буде для доступних даних.")
-                # Обрізаємо прогнози, щоб відповідати доступним істинним значенням
+                    f"Warning: Fewer true Y values available ({actual_num_recursive_steps_for_eval} steps) for evaluating recursive predictions than predicted ({num_steps_for_recursion} steps). Evaluation will be for available data.")
+                # Trim predictions to match available true values
                 recursive_predictions_unscaled = recursive_predictions_unscaled[:actual_num_recursive_steps_for_eval]
 
             if actual_num_recursive_steps_for_eval > 0:
@@ -882,25 +831,25 @@ def main():
                     actual_num_recursive_steps_for_eval, FORECAST_HORIZON_MAIN, data_preprocessor.n_target_categories
                 )
 
-                # Оцінка всіх рекурсивних кроків разом
+                # Evaluate all recursive steps together
                 metrics_recursive_all = predictor.evaluate_one_day_prediction(
                     y_true_recursive_raw.reshape(-1, data_preprocessor.n_target_categories),
-                    # Згладжування часових кроків
+                    # Flatten time steps
                     recursive_predictions_unscaled.reshape(-1, data_preprocessor.n_target_categories)
                 )
-                print(f"Метрики для всіх {actual_num_recursive_steps_for_eval} рекурсивних кроків (усереднені):")
+                print(f"Metrics for all {actual_num_recursive_steps_for_eval} recursive steps (averaged):")
                 for cat, mets in metrics_recursive_all.items(): print(f"  {cat}: {mets}")
             else:
-                print("Недостатньо даних для оцінки рекурсивних прогнозів.")
+                print("Not enough data for evaluating recursive predictions.")
 
     else:
-        print("Недостатньо вихідних даних для прикладу рекурсивного прогнозування.")
+        print("Not enough source data for recursive prediction example.")
 
-    print("\n--- Оцінка моделі на внутрішньому тестовому наборі (Пряма оцінка) ---")
+    print("\n--- Evaluating model on internal test set (Direct Evaluation) ---")
     test_set_metrics = predictor.evaluate_on_test_set()
     if test_set_metrics:
         print(
-            "Метрики для внутрішнього тестового набору (прямі прогнози на один крок, усереднені за зразками/горизонтом):")
+            "Metrics for internal test set (direct one-step predictions, averaged by samples/horizon):")
         for cat, mets in test_set_metrics.items(): print(f"  {cat}: {mets}")
 
 if __name__ == '__main__':
