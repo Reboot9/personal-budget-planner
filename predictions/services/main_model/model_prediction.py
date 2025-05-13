@@ -795,9 +795,9 @@ def main():
             print(
                 f"Unscaled recursive predictions (shape {recursive_predictions_unscaled.shape}):\n{recursive_predictions_unscaled}")
 
-            reshaped_recursive_predictions_unscaled = recursive_predictions_unscaled.reshape(5, 5)
+            reshaped_recursive_predictions_unscaled = recursive_predictions_unscaled.reshape(7, 7)
             predict_json = {f'Day {n + 1}': dict(zip(target_cols_main, reshaped_recursive_predictions_unscaled[n])) for
-                            n in range(5)}
+                            n in range(7)}
             print(f'Predictions in nested JSON format: {predict_json}')
             # True values for these recursive steps
             y_true_rec_start = rec_input_start_idx + WINDOW_SIZE_MAIN
