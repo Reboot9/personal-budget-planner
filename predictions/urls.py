@@ -12,4 +12,7 @@ urlpatterns = [
     path('save_prediction/', views.SavePredictionView.as_view(), name='save_prediction'),
     path('delete/<int:pk>/', views.DeletePredictionView.as_view(), name='delete_prediction'),
 
+    path('transactions/add/', views.TransactionCreateView.as_view(), name='transaction_add'),
+    path('transactions/delete/<int:pk>/', views.TransactionDeleteView.as_view(), name='transaction_delete'),
+
 ]

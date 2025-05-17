@@ -5,14 +5,14 @@ import pandas as pd
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.sites import requests
 from django.core.exceptions import ValidationError, PermissionDenied
-from django.http import JsonResponse, HttpResponseRedirect, HttpResponseBadRequest
+from django.http import JsonResponse, HttpResponseRedirect, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy, reverse
 from django.views import View
-from django.views.generic import FormView, ListView, DeleteView
+from django.views.generic import FormView, ListView, DeleteView, UpdateView, CreateView
 from django.views.generic import TemplateView
 
-from .forms import UserFileUploadForm, PredictionForm
+from .forms import UserFileUploadForm, PredictionForm, TransactionForm, TransactionFilterForm
 from .models import UserFileUpload, TransactionCategory, Transaction, UserPrediction, PredictionDay, PredictionCategory, PredictionAlgorithm
 from .services.budget_prediction import BudgetPredictionModel
 from predictions.tasks import train_and_predict_task
@@ -29,24 +29,25 @@ def prediction_task_status(request, task_id):
             {key: (value if value is not None else 0) for key, value in day.items()}
             for day in prediction
         ]
-        cleaned_prediction = [
-            {'Taxi': 14, 'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
-             'Restaurant': 16.35557},
-            {'Coffee': 16.475573, 'Learning': 24, 'Market': 15.977781, 'Phone': 15.803815},
-            {'Coffee': 16.475573, 'Learning': 20, 'Phone': 15.803815, 'Restaurant': 16.35557, 'Taxi': 16.80649},
-            {'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
-             'Restaurant': 16.35557, 'Taxi': 16.80649},
-            {'Taxi': 15.2, 'Coffee': 14.32022, 'Learning': 18.5, 'Market': 17.2, 'Phone': 15.6, 'Restaurant': 17.9,
-             'Sport': 12.3},
-            {'Taxi': 13.8, 'Coffee': 15.5, 'Learning': 17.0, 'Market': 16.8, 'Phone': 16.2, 'Restaurant': 14.5,
-             'Sport': 14.0},
-            {'Taxi': 16.0, 'Coffee': 15.2, 'Learning': 19.0, 'Market': 17.5, 'Phone': 16.8, 'Restaurant': 18.0,
-             'Sport': 13.5, 'Travel': 11.0}
-        ]
+        # cleaned_prediction = [
+        #     {'Taxi': 14, 'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
+        #      'Restaurant': 16.35557},
+        #     {'Coffee': 16.475573, 'Learning': 24, 'Market': 15.977781, 'Phone': 15.803815},
+        #     {'Coffee': 16.475573, 'Learning': 20, 'Phone': 15.803815, 'Restaurant': 16.35557, 'Taxi': 16.80649},
+        #     {'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
+        #      'Restaurant': 16.35557, 'Taxi': 16.80649},
+        #     {'Taxi': 15.2, 'Coffee': 14.32022, 'Learning': 18.5, 'Market': 17.2, 'Phone': 15.6, 'Restaurant': 17.9,
+        #      'Sport': 12.3},
+        #     {'Taxi': 13.8, 'Coffee': 15.5, 'Learning': 17.0, 'Market': 16.8, 'Phone': 16.2, 'Restaurant': 14.5,
+        #      'Sport': 14.0},
+        #     {'Taxi': 16.0, 'Coffee': 15.2, 'Learning': 19.0, 'Market': 17.5, 'Phone': 16.8, 'Restaurant': 18.0,
+        #      'Sport': 13.5, 'Travel': 11.0}
+        # ]
 
         request.session['prediction_data'] = cleaned_prediction
         return JsonResponse({'status': 'done', 'result': cleaned_prediction})
     return JsonResponse({'status': 'pending'})
+
 
 
 class HomeView(LoginRequiredMixin, TemplateView):
@@ -56,6 +57,8 @@ class HomeView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
+        # your existing prediction code
         latest_prediction = UserPrediction.objects.filter(user=self.request.user).order_by('-created_at').first()
         context['readonly'] = True
         if latest_prediction:
@@ -69,6 +72,27 @@ class HomeView(LoginRequiredMixin, TemplateView):
         else:
             context['prediction'] = None
             context['prediction_length'] = 0
+
+        # transaction form for adding new
+        context['form'] = TransactionForm()
+
+        # filter form
+        filter_form = TransactionFilterForm(self.request.GET)
+        qs = Transaction.objects.filter(user=self.request.user, data_source=2).order_by('-date')
+        if filter_form.is_valid():
+            if filter_form.cleaned_data['date_from']:
+                qs = qs.filter(date__gte=filter_form.cleaned_data['date_from'])
+            if filter_form.cleaned_data['date_to']:
+                qs = qs.filter(date__lte=filter_form.cleaned_data['date_to'])
+            if filter_form.cleaned_data['category']:
+                qs = qs.filter(category=filter_form.cleaned_data['category'])
+            if filter_form.cleaned_data['amount_min'] is not None:
+                qs = qs.filter(amount__gte=filter_form.cleaned_data['amount_min'])
+            if filter_form.cleaned_data['amount_max'] is not None:
+                qs = qs.filter(amount__lte=filter_form.cleaned_data['amount_max'])
+        context['filter_form'] = filter_form
+        context['transactions'] = qs
+
         return context
 
 
@@ -178,8 +202,11 @@ class PredictionFormView(LoginRequiredMixin, FormView):
         categories = form.cleaned_data['category']
         date_from = form.cleaned_data.get('date_from')
         date_to = form.cleaned_data.get('date_to')
+        include_user_data = form.cleaned_data.get('include_user_data', False)
 
         transactions = Transaction.objects.filter(category__in=categories, user=self.request.user)
+        if not include_user_data:
+            transactions = transactions.exclude(data_source=2)
 
         if date_from:
             transactions = transactions.filter(date__gte=date_from)
@@ -269,3 +296,23 @@ class DeletePredictionView(LoginRequiredMixin, View):
 
         prediction.delete()
         return redirect('prediction_form')
+
+
+class TransactionCreateView(LoginRequiredMixin, CreateView):
+    model = Transaction
+    form_class = TransactionForm
+    success_url = reverse_lazy('home')
+
+    def form_valid(self, form):
+        form.instance.user = self.request.user
+        form.instance.data_source = 2
+        return super().form_valid(form)
+
+
+class TransactionDeleteView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        pk = kwargs.get('pk')
+        transaction = Transaction.objects.filter(user=request.user, data_source=2, pk=pk).first()
+        if transaction:
+            transaction.delete()
+        return HttpResponseRedirect(reverse_lazy('home'))
