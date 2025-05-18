@@ -795,9 +795,9 @@ def main():
             print(
                 f"Unscaled recursive predictions (shape {recursive_predictions_unscaled.shape}):\n{recursive_predictions_unscaled}")
 
-            reshaped_recursive_predictions_unscaled = recursive_predictions_unscaled.reshape(7, 7)
+            reshaped_recursive_predictions_unscaled = recursive_predictions_unscaled.reshape(N_RECURSIVE_TEST_STEPS_MAIN, 5)
             predict_json = {f'Day {n + 1}': dict(zip(target_cols_main, reshaped_recursive_predictions_unscaled[n])) for
-                            n in range(7)}
+                            n in range(N_RECURSIVE_TEST_STEPS_MAIN)}
             print(f'Predictions in nested JSON format: {predict_json}')
             # True values for these recursive steps
             y_true_rec_start = rec_input_start_idx + WINDOW_SIZE_MAIN
@@ -831,15 +831,15 @@ def main():
             else:
                 print("Not enough data for evaluating recursive predictions.")
 
-    else:
-        print("Not enough source data for recursive prediction example.")
+        else:
+            print("Not enough source data for recursive prediction example.")
 
-    print("\n--- Evaluating model on internal test set (Direct Evaluation) ---")
-    test_set_metrics = predictor.evaluate_on_test_set()
-    if test_set_metrics:
-        print(
-            "Metrics for internal test set (direct one-step predictions, averaged by samples/horizon):")
-        for cat, mets in test_set_metrics.items(): print(f"  {cat}: {mets}")
+        print("\n--- Evaluating model on internal test set (Direct Evaluation) ---")
+        test_set_metrics = predictor.evaluate_on_test_set()
+        if test_set_metrics:
+            print(
+                "Metrics for internal test set (direct one-step predictions, averaged by samples/horizon):")
+            for cat, mets in test_set_metrics.items(): print(f"  {cat}: {mets}")
 
 if __name__ == '__main__':
     main()
