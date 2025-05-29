@@ -294,38 +294,25 @@ def build_model_architecture(hp: kt.HyperParameters,
     """Determines and compiles model architecture depending on hyperparams."""
     model = keras.Sequential()
     model.add(keras.Input(shape=(window_size, n_features)))
-    model_type = hp.Choice('model_type', values=['lstm', 'gru', 'tcn'])
 
-    if model_type in ['lstm', 'gru']:
-        num_rnn_layers = hp.Int('num_rnn_layers', 1, 3)
-        for i in range(num_rnn_layers):
-            rnn_units = hp.Int(f'rnn_units_layer_{i + 1}', min_value=32, max_value=256, step=32)
-            is_last_rnn_layer_in_stack = (i == num_rnn_layers - 1)
-            common_rnn_params = {'units': rnn_units, 'return_sequences': not is_last_rnn_layer_in_stack}
-            if model_type == 'lstm':
-                model.add(layers.LSTM(**common_rnn_params))
-            else:
-                model.add(layers.GRU(**common_rnn_params))
-            model.add(
-                layers.Dropout(rate=hp.Float(f'dropout_rnn_layer_{i + 1}', min_value=0.0, max_value=0.5, step=0.1)))
-    elif model_type == 'tcn':
-        tcn_filters = hp.Int('tcn_filters', min_value=32, max_value=128, step=32)
-        tcn_kernel_size = hp.Int('tcn_kernel_size', min_value=2, max_value=7, step=1)
-        tcn_nb_stacks = hp.Int('tcn_nb_stacks', min_value=1, max_value=2)
-        dilation_choice = hp.Choice('tcn_dilation_set', values=['short', 'medium', 'long'])  # Додано 'long'
-        if dilation_choice == 'short':
-            tcn_dilations = [1, 2, 4]
-        elif dilation_choice == 'medium':
-            tcn_dilations = [1, 2, 4, 8]
-        else:  # 'long'
-            tcn_dilations = [1, 2, 4, 8, 16]
-        model.add(TCN(nb_filters=tcn_filters, kernel_size=tcn_kernel_size, nb_stacks=tcn_nb_stacks,
-                      dilations=tcn_dilations, padding='causal',
-                      use_skip_connections=hp.Boolean('tcn_skip_connections', default=True),
-                      dropout_rate=hp.Float('tcn_internal_dropout', min_value=0.0, max_value=0.3, step=0.05),
-                      return_sequences=False, input_shape=(window_size, n_features)))
-        model.add(layers.Dropout(rate=hp.Float('dropout_after_tcn', min_value=0.0, max_value=0.5, step=0.1)))
+    num_rnn_layers = hp.Int('num_rnn_layers', 1, 3)
+    for i in range(num_rnn_layers):
+        rnn_units = hp.Int(f'rnn_units_layer_{i + 1}', min_value=32, max_value=256, step=32)
+        is_last = (i == num_rnn_layers - 1)
+        model.add(layers.LSTM(units=rnn_units, return_sequences=not is_last))
 
+    tcn_filters = hp.Int('tcn_filters', min_value=32, max_value=128, step=32)
+    tcn_kernel_size = hp.Int('tcn_kernel_size', min_value=2, max_value=7, step=1)
+    tcn_nb_stacks = hp.Int('tcn_nb_stacks', min_value=1, max_value=2)
+    dilation_choice = hp.Choice('tcn_dilation_set', values=['short', 'medium', 'long'])
+    tcn_dilations = [1, 2, 4] if dilation_choice == 'short' else [1, 2, 4, 8] if dilation_choice == 'medium' else [1, 2, 4, 8, 16]
+    
+    model.add(TCN(nb_filters=tcn_filters, kernel_size=tcn_kernel_size, nb_stacks=tcn_nb_stacks,
+                  dilations=tcn_dilations, padding='causal',
+                  use_skip_connections=hp.Boolean('tcn_skip_connections', default=True),
+                  dropout_rate=hp.Float('tcn_internal_dropout', min_value=0.0, max_value=0.3, step=0.05),
+                  return_sequences=False))
+    
     model.add(layers.Dense(units=forecast_horizon * n_outputs, activation='softplus'))
     model.add(layers.Reshape((forecast_horizon, n_outputs)))
 
