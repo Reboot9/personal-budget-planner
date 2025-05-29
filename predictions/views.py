@@ -29,21 +29,7 @@ def prediction_task_status(request, task_id):
             {key: (value if value is not None else 0) for key, value in day.items()}
             for day in prediction
         ]
-        # cleaned_prediction = [
-        #     {'Taxi': 14, 'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
-        #      'Restaurant': 16.35557},
-        #     {'Coffee': 16.475573, 'Learning': 24, 'Market': 15.977781, 'Phone': 15.803815},
-        #     {'Coffee': 16.475573, 'Learning': 20, 'Phone': 15.803815, 'Restaurant': 16.35557, 'Taxi': 16.80649},
-        #     {'Coffee': 16.475573, 'Learning': 16.209991, 'Market': 15.977781, 'Phone': 15.803815,
-        #      'Restaurant': 16.35557, 'Taxi': 16.80649},
-        #     {'Taxi': 15.2, 'Coffee': 14.32022, 'Learning': 18.5, 'Market': 17.2, 'Phone': 15.6, 'Restaurant': 17.9,
-        #      'Sport': 12.3},
-        #     {'Taxi': 13.8, 'Coffee': 15.5, 'Learning': 17.0, 'Market': 16.8, 'Phone': 16.2, 'Restaurant': 14.5,
-        #      'Sport': 14.0},
-        #     {'Taxi': 16.0, 'Coffee': 15.2, 'Learning': 19.0, 'Market': 17.5, 'Phone': 16.8, 'Restaurant': 18.0,
-        #      'Sport': 13.5, 'Travel': 11.0}
-        # ]
-
+  
         request.session['prediction_data'] = cleaned_prediction
         return JsonResponse({'status': 'done', 'result': cleaned_prediction})
     return JsonResponse({'status': 'pending'})
